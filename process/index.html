@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How We Work · Legends of the Game</title>
+<meta name="description" content="How Legends of the Game builds its trackers and plugins, and the tools it uses.">
+<link rel="canonical" href="https://legendmemoria.org/process/">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap top">
+    <a class="brand" href="../">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4 26 16 16 28 6 16Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M16 10 21 16 16 22 11 16Z" fill="var(--accent)"/></svg>
+      Legends of the Game
+    </a>
+    <nav aria-label="Site">
+      <a href="../#projects">Projects</a>
+      <a href="../plugins/">Plugins</a>
+      <a href="./" aria-current="page">How we work</a>
+      <a href="https://ko-fi.com/legendsofthegame">Ko-fi</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="eyebrow">Process</p>
+    <h1 style="font-size:clamp(2.2rem,5vw,3.4rem)">How we work</h1>
+    <p class="lede prose">We build tools that we use every day in our own games. This page tells you how a tool goes from an idea to a release, and which tools we use to make it.</p>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="wrap">
+      <h2>From idea to release</h2>
+      <p class="section-note">Each step must be complete before the next step starts.</p>
+      <ol class="steps">
+        <li>
+          <h3>Write the idea down</h3>
+          <p>Each idea goes on our planning board. Ideas that we plan to build, ideas that we parked, and ideas that we rejected go on the public <a href="https://legendsofthegame.github.io/roadmap/">roadmap</a>, each with a reason.</p>
+        </li>
+        <li>
+          <h3>Ask the game first</h3>
+          <p>If we do not know how the game stores something, we do not guess. We build a small test plugin that reads the value from the game and reports it. Only facts that we confirmed go into a released tool.</p>
+        </li>
+        <li>
+          <h3>Use the game's own data</h3>
+          <p>Our plugins read quests, items and places from the game's own data tables. When the game does not hold a fact, we use the community wiki, and we show where the fact comes from.</p>
+        </li>
+        <li>
+          <h3>Test in the game</h3>
+          <p>A change is complete only when it works in the game. "It builds" is not enough. We test each change on our own characters before we release it.</p>
+        </li>
+        <li>
+          <h3>Release in public</h3>
+          <p>All source code is on GitHub. An automatic build makes each plugin release from that code, so the download is the same as the source that you can read.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="about">
+    <div class="wrap about-cols">
+      <div class="prose">
+        <h2>What our tools do not do</h2>
+        <p>Some rules apply to every tool that we make. We do not change these rules to add a feature.</p>
+        <ul class="rules">
+          <li>Our plugins do not automate the game. They do not press keys or send commands for you.</li>
+          <li>Our plugins do not read combat logs or damage numbers.</li>
+          <li>Our tools describe your progress. They do not rank you or call your progress good or bad.</li>
+          <li>Our web apps keep your data in your browser. There is no account and no server that holds your data.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>Our tools</h2>
+        <dl class="toolbox">
+          <dt>C# and .NET</dt><dd>The language of our plugins.</dd>
+          <dt>Dalamud</dt><dd>The plugin framework for Final Fantasy XIV.</dd>
+          <dt>HTML, CSS and JavaScript</dt><dd>Our web apps. No frameworks and no tracking scripts.</dd>
+          <dt>GitHub</dt><dd>Source code, automatic builds, releases and website hosting.</dd>
+          <dt>Claude Code</dt><dd>AI help with code and text.</dd>
+          <dt>Cloudflare</dt><dd>The DNS for legendmemoria.org.</dd>
+          <dt>Ko-fi</dt><dd>Optional support from players.</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>&copy; 2026 Legends of the Game</span>
+    <nav aria-label="Footer">
+      <a href="../">Home</a>
+      <a href="https://ko-fi.com/legendsofthegame">Ko-fi</a>
+      <a href="https://github.com/LegendsOfTheGame">GitHub</a>
+      <a href="../privacy.html">Privacy</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

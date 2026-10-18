@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dalamud Plugins · Legends of the Game</title>
+<meta name="description" content="All Dalamud plugins for Final Fantasy XIV by Legends of the Game, with install instructions.">
+<link rel="canonical" href="https://legendmemoria.org/plugins/">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap top">
+    <a class="brand" href="../">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4 26 16 16 28 6 16Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M16 10 21 16 16 22 11 16Z" fill="var(--accent)"/></svg>
+      Legends of the Game
+    </a>
+    <nav aria-label="Site">
+      <a href="../#projects">Projects</a>
+      <a href="./" aria-current="page">Plugins</a>
+      <a href="../process/">How we work</a>
+      <a href="../#about">About</a>
+      <a href="https://ko-fi.com/legendsofthegame">Ko-fi</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="eyebrow">Final Fantasy XIV &middot; Dalamud</p>
+    <h1 style="font-size:clamp(2.2rem,5vw,3.4rem)">Plugins</h1>
+    <p class="lede prose">All our Dalamud plugins for Final Fantasy XIV. Each plugin has its own repository URL. Our plugins are not in the official Dalamud plugin list.</p>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="wrap">
+
+      <details class="howto">
+        <summary>How to install a plugin from a custom repository</summary>
+        <ol>
+          <li>In the game, type <code>/xlsettings</code> to open the Dalamud settings.</li>
+          <li>Select the <em>Experimental</em> tab.</li>
+          <li>Find <em>Custom Plugin Repositories</em>. Paste the repository URL of the plugin into the empty field.</li>
+          <li>Select the <em>+</em> button, then select <em>Save and Close</em>.</li>
+          <li>Type <code>/xlplugins</code>. Find the plugin by name and select <em>Install</em>.</li>
+        </ol>
+        <p class="hint">CAUTION: Plugins from custom repositories do not get a review from the Dalamud team. Add only repositories that you trust.</p>
+      </details>
+
+      <p class="count">3 plugins</p>
+
+      <ul class="plugin-list">
+
+        <li class="plugin">
+          <img src="icons/time-memoria.png" width="64" height="64" alt="">
+          <div class="plugin-body">
+            <div class="plugin-head">
+              <h2>Time Memoria</h2>
+              <span class="ver">v3.7.7.15</span>
+              <span class="status live">Released</span>
+            </div>
+            <p class="punch">Remember every step, Warriors of Light.</p>
+            <p class="desc">Quest progression and pacing. Time Memoria records when you complete quests and shows how your time spreads across the story. It is a notebook for your journey, not a scoreboard.</p>
+            <p class="tags"><span>quest</span><span>progression</span><span>pacing</span><span>tracker</span></p>
+            <div class="repo-row">
+              <code class="repo-url">https://raw.githubusercontent.com/LegendsOfTheGame/TimeMemoriaV3/main/repo.json</code>
+              <button class="copy" type="button">Copy</button>
+            </div>
+            <p class="links"><a href="https://github.com/LegendsOfTheGame/TimeMemoriaV3">Source</a></p>
+          </div>
+        </li>
+
+        <li class="plugin">
+          <img src="icons/bestiary-mapper.png" width="64" height="64" alt="">
+          <div class="plugin-body">
+            <div class="plugin-head">
+              <h2>Bestiary Mapper</h2>
+              <span class="ver">v1.0.0.15</span>
+              <span class="status live">Released</span>
+            </div>
+            <p class="punch">Find every Master's Bestiary beast on the map.</p>
+            <p class="desc">Lists every beast in the Master's Bestiary (Beastmaster) with the enemy it is tamed from, its zone, its minimum level and its Kornago Gourd unlock. Select an entry to put a flag on its location on the in-game map.</p>
+            <p class="tags"><span>beastmaster</span><span>bestiary</span><span>map</span><span>hunting</span></p>
+            <div class="repo-row">
+              <code class="repo-url">https://raw.githubusercontent.com/LegendsOfTheGame/BestiaryMapper/master/repo.json</code>
+              <button class="copy" type="button">Copy</button>
+            </div>
+            <p class="links"><a href="https://github.com/LegendsOfTheGame/BestiaryMapper">Source</a></p>
+          </div>
+        </li>
+
+        <li class="plugin is-soon">
+          <div class="plugin-icon-blank" aria-hidden="true"></div>
+          <div class="plugin-body">
+            <div class="plugin-head">
+              <h2>Bait Lookup</h2>
+              <span class="status soon">Soon</span>
+            </div>
+            <p class="punch">Type a fish name, get the bait.</p>
+            <p class="desc">Look up a fish by name or Fish Guide number. Bait Lookup shows the bait, the mooch chain and the fishing hole in one line, with a map flag.</p>
+            <p class="tags"><span>fishing</span><span>bait</span><span>lookup</span></p>
+            <p class="links soon-note">Not released yet.</p>
+          </div>
+        </li>
+
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>&copy; 2026 Legends of the Game</span>
+    <nav aria-label="Footer">
+      <a href="../">Home</a>
+      <a href="https://ko-fi.com/legendsofthegame">Ko-fi</a>
+      <a href="https://github.com/LegendsOfTheGame">GitHub</a>
+      <a href="../privacy.html">Privacy</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="copy.js"></script>
+</body>
+</html>
