@@ -28,7 +28,7 @@
   <div class="wrap">
     <p class="eyebrow">Final Fantasy XIV &middot; Dalamud</p>
     <h1 style="font-size:clamp(2.2rem,5vw,3.4rem)">Plugins</h1>
-    <p class="lede prose">All our Dalamud plugins for Final Fantasy XIV. Each plugin has its own repository URL. Our plugins are not in the official Dalamud plugin list.</p>
+    <p class="lede prose">All our Dalamud plugins for Final Fantasy XIV. Add one URL to Dalamud and you get all of them. Our plugins are not in the official Dalamud plugin list.</p>
   </div>
 </header>
 
@@ -36,12 +36,22 @@
   <section>
     <div class="wrap">
 
+      <div class="all-repo">
+        <h2>One URL for all our plugins</h2>
+        <p>Add this URL to <em>Custom Plugin Repositories</em> in the Dalamud settings. All our released plugins then show in the plugin installer, and new plugins appear there when we release them.</p>
+        <div class="repo-row">
+          <code class="repo-url">https://legendmemoria.org/repo.json</code>
+          <button class="copy" type="button">Copy</button>
+        </div>
+        <p class="hint">CAUTION: Use this URL <strong>or</strong> the URL of a single plugin below, not both. If you add both, Dalamud shows the plugin two times.</p>
+      </div>
+
       <details class="howto">
         <summary>How to install a plugin from a custom repository</summary>
         <ol>
           <li>In the game, type <code>/xlsettings</code> to open the Dalamud settings.</li>
           <li>Select the <em>Experimental</em> tab.</li>
-          <li>Find <em>Custom Plugin Repositories</em>. Paste the repository URL of the plugin into the empty field.</li>
+          <li>Find <em>Custom Plugin Repositories</em>. Paste the repository URL into the empty field.</li>
           <li>Select the <em>+</em> button, then select <em>Save and Close</em>.</li>
           <li>Type <code>/xlplugins</code>. Find the plugin by name and select <em>Install</em>.</li>
         </ol>
@@ -57,7 +67,7 @@
           <div class="plugin-body">
             <div class="plugin-head">
               <h2>Time Memoria</h2>
-              <span class="ver">v3.7.7.15</span>
+              <span class="ver" data-plugin="TimeMemoriaV3">v3.7.7.15</span>
               <span class="status live">Released</span>
             </div>
             <p class="punch">Remember every step, Warriors of Light.</p>
@@ -76,7 +86,7 @@
           <div class="plugin-body">
             <div class="plugin-head">
               <h2>Bestiary Mapper</h2>
-              <span class="ver">v1.0.0.15</span>
+              <span class="ver" data-plugin="BestiaryMapper">v1.0.0.15</span>
               <span class="status live">Released</span>
             </div>
             <p class="punch">Find every Master's Bestiary beast on the map.</p>
@@ -121,6 +131,6 @@
   </div>
 </footer>
 
-<script src="copy.js"></script>
+<script src="plugins.js"></script>
 </body>
 </html>
