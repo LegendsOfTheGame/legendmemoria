@@ -1,0 +1,1738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Challenge Memoria">
+<meta name="theme-color" content="#08080f">
+<title>Challenge Memoria · Apex v0.14</title>
+<style>
+:root{
+  --bg:#08080f;--bg2:#0f0f1a;--bg3:#161625;
+  --card:rgba(255,255,255,0.04);--border:rgba(255,255,255,0.08);
+  --text:#e8eaf0;--text2:#8892a4;--text3:#4a5568;
+  --a:#cc2200;--a2:#ff3311;--a-glow:rgba(204,34,0,0.3);
+  --b:#1a4acc;--b2:#4477ff;--b-glow:rgba(26,74,204,0.3);
+  --complete:#22c55e;--complete-g:rgba(34,197,94,0.2);
+  --syn:rgba(255,200,0,0.12);--syn-b:rgba(255,200,0,0.45);
+  --star:#ffc800;
+}
+[data-theme="gold"]{--a:#b8860b;--a2:#e8a820;--a-glow:rgba(184,134,11,0.3);--b:#5a6070;--b2:#9ca3af;}
+[data-theme="white"]{--a:#aaaaaa;--a2:#ffffff;--a-glow:rgba(255,255,255,0.15);--b:#222233;--b2:#7777aa;}
+
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:var(--bg);}
+body{color:var(--text);font-family:"Barlow",sans-serif;font-size:15px;line-height:1.4;overscroll-behavior:none;}
+.app{max-width:640px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
+
+/* HEADER */
+.hdr{position:sticky;top:0;z-index:100;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 14px 8px;}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;}
+.hdr-title{font-family:"Barlow Condensed",sans-serif;font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;line-height:1;}
+.hdr-title span{color:var(--a2);}
+.hdr-sub{font-family:"Share Tech Mono",monospace;font-size:10px;color:var(--text2);letter-spacing:0.1em;margin-top:2px;}
+.hdr-right{display:flex;gap:8px;align-items:center;}
+.icon-btn{width:30px;height:30px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;transition:all 0.15s;flex-shrink:0;}
+.icon-btn:active{transform:scale(0.86);}
+.icon-btn:hover{color:var(--a2);border-color:var(--a2);}
+.theme-picker{display:flex;gap:5px;}
+.tbtn{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:border-color 0.2s,transform 0.15s;flex-shrink:0;object-fit:cover;}
+.tbtn:active{transform:scale(0.86);}
+.tbtn.active{border-color:var(--text);}
+
+/* INFO BAR */
+.info-bar{display:flex;gap:6px;padding:6px 14px;background:var(--bg2);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;}
+.info-bar::-webkit-scrollbar{display:none;}
+.chip{flex-shrink:0;padding:5px 10px;background:var(--card);border:1px solid var(--border);border-radius:3px;}
+@keyframes hardBlink{0%,49%{opacity:1;}50%,100%{opacity:0.15;}}
+@keyframes softPulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
+.chip.urgent{border-color:var(--a);box-shadow:0 0 8px var(--a-glow);}
+.chip.urgent .chip-val{color:var(--a2);}
+.chip.urgent .chip-lbl{color:var(--a);}
+.chip.chip-pulse{animation:softPulse 1s infinite;}
+.chip.chip-blink{animation:hardBlink 1s infinite;}
+.chip-lbl{font-family:"Share Tech Mono",monospace;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;}
+.chip-val{font-family:"Barlow Condensed",sans-serif;font-size:15px;font-weight:700;color:var(--a2);}
+.chip-val.b{color:var(--b2);}
+
+/* PANEL NAV */
+.pnav{display:flex;align-items:center;background:var(--bg);border-bottom:1px solid var(--border);position:sticky;top:76px;z-index:90;height:42px;}
+.parr{width:38px;height:42px;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:16px;cursor:pointer;transition:color 0.15s;user-select:none;}
+.parr:active{color:var(--a2);}
+.parr.off{opacity:0.18;pointer-events:none;}
+.plbl{flex:1;text-align:center;font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--a2);}
+.pdots{display:flex;gap:5px;align-items:center;padding:0 10px;}
+.pdot{width:6px;height:6px;border-radius:50%;background:var(--text3);transition:background 0.2s,transform 0.2s;}
+.pdot.on{background:var(--a2);transform:scale(1.3);}
+
+/* PANELS */
+.panel{display:none;padding:10px 12px 90px;}
+.panel.on{display:block;}
+
+/* PROGRESS HEADER */
+.phdr{display:flex;align-items:center;justify-content:space-between;padding:8px 2px 6px;}
+.phdr-title{font-family:"Barlow Condensed",sans-serif;font-size:25px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;line-height:1;}
+.phdr-sub{font-family:"Share Tech Mono",monospace;font-size:11px;color:var(--text2);margin-top:3px;}
+.rw{position:relative;width:50px;height:50px;flex-shrink:0;}
+.ring{transform:rotate(-90deg);}
+.rbg{fill:none;stroke:var(--bg3);stroke-width:4;}
+.rfill{fill:none;stroke:var(--a2);stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset 0.5s;}
+.rpct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:"Barlow Condensed",sans-serif;font-size:12px;font-weight:800;color:var(--a2);}
+
+/* WEEK SELECTOR */
+.wsel{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none;padding-bottom:8px;-webkit-overflow-scrolling:touch;}
+.wsel::-webkit-scrollbar{display:none;}
+#legendPickerRow::-webkit-scrollbar{display:none;}
+.wbtn{flex-shrink:0;padding:4px 9px;border-radius:3px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:"Barlow Condensed",sans-serif;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;transition:all 0.15s;line-height:1.2;text-align:center;}
+.wbtn-done{border-color:rgba(34,197,94,0.4);color:var(--complete);}
+.wbtn:active{transform:scale(0.93);}
+.wbtn.on{background:var(--a);border-color:var(--a);color:#fff;box-shadow:0 0 10px var(--a-glow);}
+.wbtn.p2{border-left:2px solid var(--b2);}
+
+/* CHALLENGE CARD */
+.cc{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:11px 12px 9px;position:relative;overflow:hidden;margin-bottom:6px;transition:opacity 0.3s,border-color 0.2s;}
+.cc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--a);opacity:0.5;transition:background 0.2s;}
+.cc.done{opacity:0.48;border-color:var(--complete-g);}
+.cc.done::before{background:var(--complete);opacity:1;}
+.cc.syn{background:var(--syn);border-color:var(--syn-b);}
+.cc.syn::before{background:#ffc800;opacity:0.85;}
+.ctxt{font-size:14px;font-weight:500;color:var(--text);margin-bottom:8px;padding-right:64px;line-height:1.5;}
+.num{color:var(--a2);font-weight:700;}
+.tag{color:var(--b2);font-weight:600;}
+.br-b{font-family:"Share Tech Mono",monospace;font-size:9px;color:var(--text3);border:1px solid var(--text3);border-radius:2px;padding:1px 4px;margin-right:4px;vertical-align:middle;}
+.star-badge{font-family:"Share Tech Mono",monospace;font-size:9px;color:var(--star);letter-spacing:0.06em;margin-top:3px;display:flex;align-items:center;gap:3px;}
+.main-hint{font-family:"Share Tech Mono",monospace;font-size:10px;color:var(--b2);margin-top:3px;letter-spacing:0.06em;}
+.sbtn{position:absolute;top:9px;right:9px;width:26px;height:26px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;transition:all 0.15s;}
+.sbtn:active{transform:scale(0.8);}
+.cc.done .sbtn{color:var(--complete);border-color:var(--complete-g);}
+.prow{display:flex;align-items:center;gap:8px;}
+.btrack{flex:1;height:20px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;position:relative;}
+.bfill{height:100%;background:var(--a);border-radius:2px;transition:width 0.3s,background 0.2s;}
+.cc.done .bfill{background:var(--complete);}
+.blbl{position:absolute;inset:0;display:flex;align-items:center;padding:0 6px;font-family:"Share Tech Mono",monospace;font-size:11px;color:rgba(255,255,255,0.85);pointer-events:none;white-space:nowrap;}
+.pinput{width:68px;flex-shrink:0;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text);font-family:"Share Tech Mono",monospace;font-size:13px;padding:3px 5px;text-align:right;outline:none;-webkit-appearance:none;appearance:none;}
+.pinput:focus{border-color:var(--a2);}
+.cdone{font-family:"Barlow Condensed",sans-serif;font-size:13px;font-weight:700;color:var(--complete);letter-spacing:0.1em;text-transform:uppercase;display:none;}
+.cc.done .cdone{display:block;}
+.cc.done .prow{display:none;}
+.syntag{font-family:"Share Tech Mono",monospace;font-size:9px;color:#ffc800;letter-spacing:0.08em;margin-top:4px;}
+.add-challenge-btn{width:100%;padding:10px;border:1px dashed var(--border);border-radius:4px;background:transparent;color:var(--text2);font-family:"Barlow Condensed",sans-serif;font-size:14px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;transition:all 0.15s;margin-bottom:6px;display:block;}
+.add-challenge-btn:hover{border-color:var(--a2);color:var(--a2);}
+.empty-week{text-align:center;padding:30px 20px;color:var(--text3);font-family:"Share Tech Mono",monospace;font-size:12px;}
+
+/* ALL PANEL */
+.wgrp{margin-bottom:14px;}
+.wghdr{font-family:"Barlow Condensed",sans-serif;font-size:17px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:var(--text2);border-bottom:1px solid var(--border);padding-bottom:5px;margin-bottom:7px;display:flex;align-items:center;justify-content:space-between;}
+.wghdr span{font-size:12px;font-weight:400;font-family:"Share Tech Mono",monospace;color:var(--text3);}
+
+/* SPOTLIGHT PANEL */
+.spotlight-section{margin-bottom:16px;}
+.spotlight-section-hdr{font-family:"Barlow Condensed",sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);padding:0 2px 6px;display:flex;align-items:center;gap:8px;}
+.spotlight-section-hdr::after{content:"";flex:1;height:1px;background:var(--border);}
+.legend-rec{background:var(--card);border:1px solid var(--syn-b);border-radius:4px;padding:12px 14px;margin-bottom:8px;}
+.legend-rec-name{font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#ffc800;line-height:1;}
+.legend-rec-cls{font-family:"Share Tech Mono",monospace;font-size:10px;color:var(--text2);margin-top:2px;margin-bottom:8px;}
+.legend-rec-why{font-size:13px;color:var(--text2);line-height:1.4;}
+.legend-rec-stars{font-family:"Share Tech Mono",monospace;font-size:11px;color:var(--star);margin-top:6px;}
+
+/* DAILY */
+.dreset{display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;margin-bottom:8px;}
+.dreset-lbl{font-family:"Share Tech Mono",monospace;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;}
+.dreset-val{font-family:"Share Tech Mono",monospace;font-size:14px;color:var(--b2);font-weight:700;}
+.dc{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:11px 12px;position:relative;overflow:hidden;margin-bottom:6px;transition:border-color 0.2s;}
+.dc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--b);opacity:0.7;}
+.dc.done::before{background:var(--complete);}
+.dc.null-mode .dtxt,.dc.null-mode .prow,.dc.null-mode .ddone,.dc.null-mode .dsel,.dc.null-mode .crow,.dc.null-mode .star-badge{opacity:0.28;}
+.dhdr{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.dtxt{font-size:14px;font-weight:500;color:var(--text);flex:1;line-height:1.4;}
+.ntog{width:26px;height:26px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;transition:all 0.15s;flex-shrink:0;}
+.ntog:active{transform:scale(0.82);}
+.ntog.on{color:var(--b2);border-color:var(--b2);}
+.crow{display:flex;align-items:center;gap:10px;margin-top:4px;}
+.cbtn{width:38px;height:38px;border-radius:4px;background:var(--b);border:none;color:#fff;font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.1s;flex-shrink:0;}
+.cbtn:active{transform:scale(0.84);background:var(--b2);}
+.cdisp{font-family:"Barlow Condensed",sans-serif;font-size:28px;font-weight:800;color:var(--text);min-width:28px;text-align:center;}
+.ctarg{font-family:"Share Tech Mono",monospace;font-size:12px;color:var(--text2);}
+.dc.done .crow{display:none;}
+.dc.done .prow{display:none;}
+.ddone{font-family:"Barlow Condensed",sans-serif;font-size:13px;font-weight:700;color:var(--complete);letter-spacing:0.1em;text-transform:uppercase;display:none;}
+.dc.done .ddone{display:block;}
+.dsel{background:var(--bg3);border:1px solid var(--b);border-radius:3px;color:var(--b2);font-family:"Barlow Condensed",sans-serif;font-size:14px;font-weight:700;padding:4px 8px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;text-transform:uppercase;letter-spacing:0.04em;margin-top:4px;width:100%;}
+.dsel:focus{border-color:var(--b2);}
+
+/* OVERLAYS */
+.ov{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.88);backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity 0.3s;}
+.ov.on{opacity:1;pointer-events:all;}
+.ocard{background:var(--bg2);border:1px solid var(--a);border-radius:6px;padding:28px 24px;max-width:320px;width:92%;text-align:center;box-shadow:0 0 40px var(--a-glow);}
+.oicon{font-size:36px;margin-bottom:10px;}
+.otitle{font-family:"Barlow Condensed",sans-serif;font-size:26px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:var(--a2);margin-bottom:6px;}
+.obody{font-size:14px;color:var(--text2);line-height:1.5;margin-bottom:20px;}
+.obody strong{color:var(--text);}
+.obtn{background:var(--a);border:none;border-radius:4px;color:#fff;font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:9px 24px;cursor:pointer;transition:all 0.15s;}
+.obtn:active{transform:scale(0.95);}
+.obtn.sec{background:var(--bg3);border:1px solid var(--border);color:var(--text2);box-shadow:none;}
+
+/* SETTINGS */
+.settings-card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:20px;max-width:380px;width:95%;max-height:88vh;overflow-y:auto;text-align:left;}
+.s-section{font-family:"Barlow Condensed",sans-serif;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border);}
+.s-section:first-child{margin-top:0;}
+.s-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);}
+.s-row-label{font-size:13px;color:var(--text2);}
+.s-toggle{width:40px;height:22px;border-radius:11px;background:var(--bg3);border:1px solid var(--border);position:relative;cursor:pointer;transition:background 0.2s;flex-shrink:0;}
+.s-toggle.on{background:var(--b);}
+.s-toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 0.2s;}
+.s-toggle.on::after{transform:translateX(18px);}
+.s-sel{background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--b2);font-family:"Barlow Condensed",sans-serif;font-size:13px;font-weight:700;padding:4px 8px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;max-width:160px;}
+.s-sel:focus{border-color:var(--b2);}
+.s-btn{width:100%;padding:9px;border-radius:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:"Barlow Condensed",sans-serif;font-size:14px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;transition:all 0.15s;margin-top:6px;text-align:center;display:block;}
+.s-btn:hover{border-color:var(--a2);color:var(--a2);}
+.s-btn.danger{color:var(--a2);border-color:rgba(204,34,0,0.3);}
+
+/* BUILDER */
+.builder-card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:20px;max-width:380px;width:95%;max-height:92vh;overflow-y:auto;text-align:left;}
+.b-title{font-family:"Barlow Condensed",sans-serif;font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--text);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;}
+.b-field{margin-bottom:12px;}
+.b-label{font-family:"Share Tech Mono",monospace;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;}
+.b-select,.b-input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text);font-family:"Barlow Condensed",sans-serif;font-size:15px;font-weight:600;padding:7px 10px;outline:none;-webkit-appearance:none;appearance:none;cursor:pointer;}
+.b-select:focus,.b-input:focus{border-color:var(--a2);}
+.b-input{cursor:text;font-family:"Share Tech Mono",monospace;font-size:14px;}
+.b-preview{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:10px 12px;font-size:13px;color:var(--text2);min-height:40px;margin-bottom:12px;}
+.b-row{display:flex;gap:10px;}
+.b-row .b-field{flex:1;}
+.b-save{width:100%;padding:11px;background:var(--a);border:none;border-radius:4px;color:#fff;font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;transition:all 0.15s;margin-top:4px;}
+.b-save:active{transform:scale(0.97);}
+
+/* STATS */
+.stats-card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:20px;max-width:380px;width:95%;max-height:85vh;overflow-y:auto;text-align:left;}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);}
+.stat-lbl{font-size:13px;color:var(--text2);}
+.stat-val{font-family:"Share Tech Mono",monospace;font-size:14px;color:var(--a2);font-weight:700;}
+.stat-section{font-family:"Barlow Condensed",sans-serif;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin:14px 0 4px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="hdr">
+    <div class="hdr-top">
+      <div>
+        <div class="hdr-title">Challenge <span>Memoria</span></div>
+        <div class="hdr-sub">APEX LEGENDS &middot; SEASON 30 MARKED</div>
+      </div>
+      <div class="hdr-right">
+        <div class="theme-picker">
+          <img class="tbtn" data-t="red"   src="theme-red.png"   onclick="setTheme('red')"   title="Red / Blue"   alt="Red theme">
+          <img class="tbtn"        data-t="gold"  src="theme-gold.png"  onclick="setTheme('gold')"  title="Gold / Silver" alt="Gold theme">
+          <img class="tbtn"        data-t="white" src="theme-white.png" onclick="setTheme('white')" title="White / Black" alt="White theme">
+        </div>
+        <div class="icon-btn" onclick="showSettings()" title="Settings">&#9881;&#65039;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-bar">
+    <div class="chip"><div class="chip-lbl">Season</div><div class="chip-val" id="iSeason">S30</div></div>
+    <div class="chip"><div class="chip-lbl">Weekly Reset</div><div class="chip-val b" id="iWeekly">--:--</div></div>
+    <div class="chip"><div class="chip-lbl">Daily Reset</div><div class="chip-val b" id="iDaily">--:--</div></div>
+    <div class="chip"><div class="chip-lbl">Season Ends</div><div class="chip-val" id="iEnd">--d</div></div>
+  </div>
+
+  <div class="pnav">
+    <div class="parr" id="pLeft"  onclick="shiftP(-1)">&#9664;</div>
+    <div class="plbl" id="pLbl">Spotlight</div>
+    <div class="pdots" id="pDots">
+      <div class="pdot on"></div><div class="pdot"></div><div class="pdot"></div><div class="pdot"></div><div class="pdot"></div>
+    </div>
+    <div class="parr" id="pRight" onclick="shiftP(1)">&#9654;</div>
+  </div>
+
+  <div class="panel on" id="p0"><div id="spotlightList"></div></div>
+  <div class="panel" id="pLegend">
+    <div id="legendPickerRow" style="display:flex;flex-wrap:nowrap;gap:8px;padding:10px 0 14px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;"></div>
+    <div id="legendChallengeList"></div>
+  </div>
+  <div class="panel"    id="p1">
+    <div class="dreset"><span class="dreset-lbl">Next Daily Reset</span><span class="dreset-val" id="dResetVal">--:--:--</span></div>
+    <div id="dList"></div>
+  </div>
+  <div class="panel"    id="p2">
+    <div class="wsel" id="wSel"></div>
+    <div class="phdr">
+      <div><div class="phdr-title" id="wkTitle">Week 1</div><div class="phdr-sub" id="wkSub">0 / 10</div></div>
+      <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" id="wkRing" cx="25" cy="25" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><div class="rpct" id="wkPct">0%</div></div>
+    </div>
+    <div id="wkList"></div>
+  </div>
+  <div class="panel"    id="p3">
+    <div class="phdr">
+      <div><div class="phdr-title" id="allTitle">Part 1</div><div class="phdr-sub" id="allSub">0 / 0</div></div>
+      <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" id="allRing" cx="25" cy="25" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><div class="rpct" id="allPct">0%</div></div>
+    </div>
+    <div id="allList"></div>
+  </div>
+</div>
+
+<!-- RESET OVERLAY -->
+<div class="ov" id="ovReset">
+  <div class="ocard">
+    <div class="oicon">&#9889;</div>
+    <div class="otitle" id="ovResetTitle">Reset</div>
+    <div class="obody" id="ovResetBody"></div>
+    <button class="obtn" onclick="closeOv('ovReset')">Got It</button>
+  </div>
+</div>
+
+<!-- CONFIRM OVERLAY -->
+<div class="ov" id="ovConfirm">
+  <div class="ocard">
+    <div class="oicon">&#9888;&#65039;</div>
+    <div class="otitle" id="ovConfirmTitle">Are you sure?</div>
+    <div class="obody" id="ovConfirmBody"></div>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button class="obtn sec" onclick="closeOv('ovConfirm')">Cancel</button>
+      <button class="obtn" id="ovConfirmBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS OVERLAY -->
+<div class="ov" id="ovSettings" onclick="if(event.target===this)closeOv('ovSettings')">
+  <div class="settings-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em">Settings</div>
+      <button class="obtn" style="padding:5px 12px;font-size:13px" onclick="closeOv('ovSettings')">&#10005;</button>
+    </div>
+
+    <div class="s-section">My Mains</div>
+    <div class="s-row"><span class="s-row-label">Assault</span><select class="s-sel" id="mainAssault" onchange="saveMain('Assault',this.value)"></select></div>
+    <div class="s-row"><span class="s-row-label">Recon</span><select class="s-sel" id="mainRecon" onchange="saveMain('Recon',this.value)"></select></div>
+    <div class="s-row"><span class="s-row-label">Skirmisher</span><select class="s-sel" id="mainSkirmisher" onchange="saveMain('Skirmisher',this.value)"></select></div>
+    <div class="s-row"><span class="s-row-label">Support</span><select class="s-sel" id="mainSupport" onchange="saveMain('Support',this.value)"></select></div>
+    <div class="s-row"><span class="s-row-label">Controller</span><select class="s-sel" id="mainController" onchange="saveMain('Controller',this.value)"></select></div>
+
+    <div class="s-section">Daily Challenges</div>
+    <div class="s-row">
+      <span class="s-row-label">Enable Daily Tracking</span>
+      <div class="s-toggle on" id="dailyToggle" onclick="toggleDailyEnabled()"></div>
+    </div>
+
+    <div class="s-section">Data</div>
+    <button class="s-btn" onclick="exportData()">&#8599; Export Save File</button>
+    <label class="s-btn" style="cursor:pointer">
+      &#8601; Import Save File
+      <input type="file" accept=".json" style="display:none" onchange="importData(event)">
+    </label>
+    <button class="s-btn danger" onclick="confirmClearAll()">&#8635; Clear All Progress</button>
+    <button class="s-btn danger" style="margin-top:10px;border-color:rgba(204,34,0,0.6)" onclick="initFactoryReset()">&#9888; Factory Reset</button>
+  </div>
+</div>
+
+<!-- CHALLENGE BUILDER -->
+<div class="ov" id="ovBuilder" onclick="if(event.target===this)closeBuilder()">
+  <div class="builder-card">
+    <div class="b-title">
+      <span id="builderTitle">Add Challenge</span>
+      <button class="obtn" style="padding:5px 12px;font-size:13px" onclick="closeBuilder()">&#10005;</button>
+    </div>
+    <div class="b-field">
+      <div class="b-label">Challenge Type</div>
+      <select class="b-select" id="bType" onchange="onBuilderChange()">
+        <option value="">-- Select Type --</option>
+        <optgroup label="Play">
+          <option value="play_matches">Play X matches</option>
+          <option value="play_matches_class">Play X matches as [class] or [class]</option>
+        </optgroup>
+        <optgroup label="Damage">
+          <option value="dmg_general">Deal X damage</option>
+          <option value="dmg_class">Deal X damage as [class] or [class]</option>
+          <option value="dmg_weapon">Deal X damage with [weapon]</option>
+          <option value="dmg_hipfire">Deal X damage from hipfire</option>
+          <option value="dmg_single">Deal X damage in a single match</option>
+        </optgroup>
+        <optgroup label="Kills">
+          <option value="kills">Get X kills</option>
+          <option value="kills_assists">Get X kills or assists</option>
+          <option value="kills_assists_weapon">Get X kills or assists with [weapon]</option>
+          <option value="kills_single">Get X kills in a single match</option>
+          <option value="kills_same_legend">Kill X players using same legend as you</option>
+        </optgroup>
+        <optgroup label="Combat">
+          <option value="headshots">Get X headshots</option>
+          <option value="knockdowns">Get X knockdowns</option>
+          <option value="finishing_move">Perform X finishing move(s)</option>
+        </optgroup>
+        <optgroup label="Survival">
+          <option value="top_finish">Get a Top X finish X times</option>
+          <option value="top_finish_events">Finish Top X with X combined kills/knocks/assists</option>
+          <option value="survive_rings">Survive X ring closings</option>
+          <option value="win">Win X match(es)</option>
+          <option value="outlive">Outlive X opponents</option>
+          <option value="ranked_matches">Play X ranked matches</option>
+        </optgroup>
+        <optgroup label="Utility">
+          <option value="revive">Revive squadmates X times</option>
+          <option value="restore_health">Restore X health</option>
+          <option value="restore_shields">Restore X shields</option>
+          <option value="open_bins">Open X supply bins</option>
+          <option value="loot_epic">Loot X Epic (purple) items</option>
+          <option value="loot_legendary">Loot X Legendary items</option>
+          <option value="loot_care_pkg">Loot X neutral care packages</option>
+          <option value="craft_replicator">Craft X times at a replicator</option>
+          <option value="obtain_arsenal">Obtain X weapons from an Arsenal</option>
+          <option value="equip_attachment">Equip a weapon attachment in X matches</option>
+          <option value="thank_squadmate">Thank a squadmate in X matches</option>
+          <option value="mantle_boost">Perform X Mantle Boosts in a single match</option>
+          <option value="reinforce_hardlight">Reinforce X Hardlights as a [class] legend</option>
+          <option value="break_hardlight">Break X hardlights</option>
+        </optgroup>
+        <optgroup label="Other">
+          <option value="reminder">Reminder (no progress tracking)</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="b-row">
+      <div class="b-field" id="bN1Wrap" style="display:none">
+        <div class="b-label" id="bN1Lbl">Number</div>
+        <input class="b-input" type="text" inputmode="numeric" id="bN1" oninput="updatePreview()" placeholder="0">
+      </div>
+      <div class="b-field" id="bN2Wrap" style="display:none">
+        <div class="b-label" id="bN2Lbl">Number 2</div>
+        <input class="b-input" type="text" inputmode="numeric" id="bN2" oninput="updatePreview()" placeholder="0">
+      </div>
+    </div>
+
+    <div class="b-row" id="bClassWrap" style="display:none">
+      <div class="b-field">
+        <div class="b-label">Class 1</div>
+        <select class="b-select" id="bCls1" onchange="updatePreview()">
+          <option value="Assault">Assault</option><option value="Recon">Recon</option>
+          <option value="Skirmisher">Skirmisher</option><option value="Support">Support</option><option value="Controller">Controller</option>
+        </select>
+      </div>
+      <div class="b-field" id="bCls2Wrap">
+        <div class="b-label">Class 2</div>
+        <select class="b-select" id="bCls2" onchange="updatePreview()">
+          <option value="">None</option>
+          <option value="Assault">Assault</option><option value="Recon">Recon</option>
+          <option value="Skirmisher">Skirmisher</option><option value="Support">Support</option><option value="Controller">Controller</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="b-field" id="bSingleClassWrap" style="display:none">
+      <div class="b-label">Legend Class</div>
+      <select class="b-select" id="bSingleCls" onchange="updatePreview()">
+        <option value="Assault">Assault</option><option value="Recon">Recon</option>
+        <option value="Skirmisher">Skirmisher</option><option value="Support">Support</option><option value="Controller">Controller</option>
+      </select>
+    </div>
+
+    <div class="b-field" id="bWpnWrap" style="display:none">
+      <div class="b-label">Weapon Class</div>
+      <select class="b-select" id="bWpn" onchange="updatePreview()">
+        <option value="Assault Rifles">Assault Rifles</option><option value="Submachine Guns">Submachine Guns</option>
+        <option value="Light Machine Guns">Light Machine Guns</option><option value="Marksman Weapons">Marksman Weapons</option>
+        <option value="Sniper Rifles">Sniper Rifles</option><option value="Pistols">Pistols</option>
+        <option value="Shotguns">Shotguns</option><option value="Ordnances">Ordnances</option><option value="Akimbos">Akimbos</option><option value="Red-Tier Weapons">Red-Tier Weapons</option>
+      </select>
+    </div>
+
+    <div class="b-field" id="bModeWrap" style="display:none">
+      <div class="b-label">Mode Restriction</div>
+      <select class="b-select" id="bMode" onchange="updatePreview()">
+        <option value="">Any Mode</option><option value="br">BR Only</option>
+        <option value="nbr">NBR Only</option><option value="ranked">Ranked</option>
+      </select>
+      <div id="bBRLock" style="display:none;padding:7px 10px;background:var(--bg3);border:1px solid rgba(204,34,0,0.4);border-radius:3px;font-family:'Share Tech Mono',monospace;font-size:13px;color:var(--a2);letter-spacing:0.08em">BR Only (locked)</div>
+    </div>
+
+    <div class="b-field" id="bStarsWrap" style="display:none">
+      <div class="b-label">&#11088; Star Value</div>
+      <select class="b-select" id="bStars">
+        <option value="5">5 Stars</option>
+        <option value="10">10 Stars</option>
+      </select>
+    </div>
+
+    <div class="b-field" id="bReminderWrap" style="display:none">
+      <div class="b-label">Reminder Text</div>
+      <input class="b-input" type="text" id="bReminder" oninput="updatePreview()" placeholder="e.g. Play 25 ranked matches for rewards">
+    </div>
+
+    <div class="b-label" style="margin-bottom:4px">Preview</div>
+    <div class="b-preview" id="bPreview">Select a challenge type to continue</div>
+    <button class="b-save" onclick="saveChallenge()">Save Challenge</button>
+  </div>
+</div>
+
+<!-- DAILY SLOT BUILDER -->
+<div class="ov" id="ovDailyBuilder" onclick="if(event.target===this)closeOv('ovDailyBuilder')">
+  <div class="builder-card">
+    <div class="b-title">
+      <span>Edit Daily Slot</span>
+      <button class="obtn" style="padding:5px 12px;font-size:13px" onclick="closeOv('ovDailyBuilder')">&#10005;</button>
+    </div>
+    <div class="b-field">
+      <div class="b-label">Challenge Type</div>
+      <select class="b-select" id="dbType" onchange="onDailyBuilderChange()">
+        <optgroup label="Play">
+          <option value="play_matches">Play X matches</option>
+          <option value="play_matches_class">Play X matches as [class] or [class]</option>
+        </optgroup>
+        <optgroup label="Damage">
+          <option value="dmg_general">Deal X damage</option>
+          <option value="dmg_class">Deal X damage as [class] or [class]</option>
+          <option value="dmg_weapon">Deal X damage with [weapon]</option>
+          <option value="dmg_hipfire">Deal X damage from hipfire</option>
+          <option value="dmg_single">Deal X damage in a single match</option>
+        </optgroup>
+        <optgroup label="Kills">
+          <option value="kills">Get X kills</option>
+          <option value="kills_assists">Get X kills or assists</option>
+          <option value="kills_assists_weapon">Get X kills or assists with [weapon]</option>
+          <option value="kills_single">Get X kills in a single match</option>
+          <option value="kills_same_legend">Kill X players using same legend as you</option>
+        </optgroup>
+        <optgroup label="Combat">
+          <option value="headshots">Get X headshots</option>
+          <option value="knockdowns">Get X knockdowns</option>
+          <option value="finishing_move">Perform X finishing move(s)</option>
+        </optgroup>
+        <optgroup label="Survival">
+          <option value="top_finish">Get a Top X finish X times</option>
+          <option value="top_finish_events">Finish Top X with X combined kills/knocks/assists</option>
+          <option value="survive_rings">Survive X ring closings</option>
+          <option value="win">Win X match(es)</option>
+          <option value="outlive">Outlive X opponents</option>
+          <option value="ranked_matches">Play X ranked matches</option>
+        </optgroup>
+        <optgroup label="Utility">
+          <option value="revive">Revive squadmates X times</option>
+          <option value="restore_health">Restore X health</option>
+          <option value="restore_shields">Restore X shields</option>
+          <option value="open_bins">Open X supply bins</option>
+          <option value="loot_epic">Loot X Epic (purple) items</option>
+          <option value="loot_legendary">Loot X Legendary items</option>
+          <option value="loot_care_pkg">Loot X neutral care packages</option>
+          <option value="craft_replicator">Craft X times at a replicator</option>
+          <option value="obtain_arsenal">Obtain X weapons from an Arsenal</option>
+          <option value="equip_attachment">Equip a weapon attachment in X matches</option>
+          <option value="thank_squadmate">Thank a squadmate in X matches</option>
+          <option value="mantle_boost">Perform X Mantle Boosts in a single match</option>
+          <option value="reinforce_hardlight">Reinforce X Hardlights as a [class] legend</option>
+          <option value="break_hardlight">Break X hardlights</option>
+        </optgroup>
+        <optgroup label="Other">
+          <option value="reminder">Reminder (no progress)</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="b-row">
+      <div class="b-field" id="dbN1Wrap">
+        <div class="b-label" id="dbN1Lbl">Target Number</div>
+        <input class="b-input" type="text" inputmode="numeric" id="dbN1" oninput="updateDailyPreview()" placeholder="0">
+      </div>
+      <div class="b-field" id="dbN2Wrap" style="display:none">
+        <div class="b-label" id="dbN2Lbl">Number 2</div>
+        <input class="b-input" type="text" inputmode="numeric" id="dbN2" oninput="updateDailyPreview()" placeholder="0">
+      </div>
+    </div>
+    <div class="b-field" id="dbWpnWrap" style="display:none">
+      <div class="b-label">Weapon Class</div>
+      <select class="b-select" id="dbWpn" onchange="updateDailyPreview()">
+        <option value="Assault Rifles">Assault Rifles</option><option value="Submachine Guns">Submachine Guns</option>
+        <option value="Light Machine Guns">Light Machine Guns</option><option value="Marksman Weapons">Marksman Weapons</option>
+        <option value="Sniper Rifles">Sniper Rifles</option><option value="Pistols">Pistols</option>
+        <option value="Shotguns">Shotguns</option><option value="Ordnances">Ordnances</option><option value="Akimbos">Akimbos</option><option value="Red-Tier Weapons">Red-Tier Weapons</option>
+      </select>
+    </div>
+    <div class="b-row" id="dbClassWrap" style="display:none">
+      <div class="b-field">
+        <div class="b-label">Class 1</div>
+        <select class="b-select" id="dbCls1" onchange="updateDailyPreview()">
+          <option value="Assault">Assault</option><option value="Recon">Recon</option>
+          <option value="Skirmisher">Skirmisher</option><option value="Support">Support</option><option value="Controller">Controller</option>
+        </select>
+      </div>
+      <div class="b-field" id="dbCls2Wrap">
+        <div class="b-label">Class 2</div>
+        <select class="b-select" id="dbCls2" onchange="updateDailyPreview()">
+          <option value="">None</option>
+          <option value="Assault">Assault</option><option value="Recon">Recon</option>
+          <option value="Skirmisher">Skirmisher</option><option value="Support">Support</option><option value="Controller">Controller</option>
+        </select>
+      </div>
+    </div>
+    <div class="b-field" id="dbSingleClassWrap" style="display:none">
+      <div class="b-label">Legend Class</div>
+      <select class="b-select" id="dbSingleCls" onchange="updateDailyPreview()">
+        <option value="Assault">Assault</option><option value="Recon">Recon</option>
+        <option value="Skirmisher">Skirmisher</option><option value="Support">Support</option><option value="Controller">Controller</option>
+      </select>
+    </div>
+    <div class="b-field" id="dbModeWrap">
+      <div class="b-label">Mode Restriction</div>
+      <select class="b-select" id="dbMode" onchange="updateDailyPreview()">
+        <option value="">Any Mode</option><option value="br">BR Only</option>
+        <option value="nbr">NBR Only</option><option value="ranked">Ranked</option>
+      </select>
+      <div id="dbBRLock" style="display:none;padding:7px 10px;background:var(--bg3);border:1px solid rgba(204,34,0,0.4);border-radius:3px;font-family:'Share Tech Mono',monospace;font-size:13px;color:var(--a2);letter-spacing:0.08em">BR Only (locked)</div>
+    </div>
+    <div class="b-field">
+      <div class="b-label">&#11088; Star Value</div>
+      <select class="b-select" id="dbStars">
+        <option value="1">1 Star</option><option value="2">2 Stars</option><option value="3">3 Stars</option>
+      </select>
+    </div>
+    <div class="b-field" id="dbReminderWrap" style="display:none">
+      <div class="b-label">Reminder Text</div>
+      <input class="b-input" type="text" id="dbReminder" oninput="updateDailyPreview()" placeholder="Reminder text">
+    </div>
+    <div class="b-label" style="margin-bottom:4px">Preview</div>
+    <div class="b-preview" id="dbPreview">-</div>
+    <button class="b-save" onclick="saveDailySlot()">Save</button>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   CONSTANTS
+================================================================ */
+// Apex resets are pinned to UTC, so local times shift with DST:
+//   weekly 17:00 UTC = 1pm EDT / 12pm EST, daily 10:00 UTC = 6am EDT / 5am EST.
+const SEA_START   = new Date("2026-08-04T17:00:00Z"); // Season 30 (Marked)
+const SEA_WKS     = 13; // S30: Split 1 = 6 weeks, Split 2 = 7 weeks (in-game timer, 2026-09-27)
+const DAY_RST_UTC = 10;
+
+const CLASSES = ["Assault","Recon","Skirmisher","Support","Controller"];
+const WEAPONS = ["Assault Rifles","Submachine Guns","Light Machine Guns","Marksman Weapons","Sniper Rifles","Pistols","Shotguns","Ordnances","Akimbos","Red-Tier Weapons"];
+const LEG_CLASS = {
+  Bangalore:"Assault",Revenant:"Assault",Fuse:"Assault","Mad Maggie":"Assault",Ballistic:"Assault",
+  Bloodhound:"Recon",Crypto:"Recon",Valkyrie:"Recon",Seer:"Recon",Vantage:"Recon",Sparrow:"Recon",
+  Pathfinder:"Skirmisher",Wraith:"Skirmisher",Octane:"Skirmisher",Horizon:"Skirmisher",Ash:"Skirmisher",Alter:"Skirmisher",
+  Gibraltar:"Support",Lifeline:"Support",Mirage:"Support",Loba:"Support",Newcastle:"Support",Conduit:"Support",
+  Caustic:"Controller",Wattson:"Controller",Rampart:"Controller",Catalyst:"Controller",
+};
+const ALL_LEGS = Object.keys(LEG_CLASS).sort();
+const LEGS_BY_CLASS = {};
+CLASSES.forEach(c=>{LEGS_BY_CLASS[c]=ALL_LEGS.filter(l=>LEG_CLASS[l]===c);});
+const MODE_LBL = {"":" ","br":"BR Only","nbr":"NBR Only","ranked":"Ranked"};
+
+/* ================================================================
+   CHALLENGE TEXT ENGINE
+================================================================ */
+function chText(c){
+  const n1=`<span class="num">${fmtN(c.n1)}</span>`;
+  const n2=`<span class="num">${fmtN(c.n2)}</span>`;
+  const cls1=`<span class="tag">${c.cls1||c.cls||""}</span>`;
+  const cls2=c.cls2?` or <span class="tag">${c.cls2}</span>`:"";
+  const wpn=`<span class="tag">${c.wpn||""}</span>`;
+  const mb=c.mode?`<span class="br-b">${MODE_LBL[c.mode]||c.mode}</span> `:"";
+  switch(c.type){
+    case"play_matches":         return`${mb}Play ${n1} matches`;
+    case"play_matches_class":   return`${mb}Play ${n1} matches as ${cls1}${cls2} legends`;
+    case"dmg_general":          return`${mb}Deal ${n1} damage`;
+    case"dmg_class":            return`${mb}Deal ${n1} damage as ${cls1}${cls2} legends`;
+    case"dmg_weapon":           return`${mb}Deal ${n1} damage with ${wpn}`;
+    case"dmg_hipfire":          return`${mb}Deal ${n1} damage from hipfire`;
+    case"dmg_single":           return`${mb}Deal ${n1} damage in a single match`;
+    case"kills":                return`${mb}Get ${n1} kills`;
+    case"kills_assists":        return`${mb}Get ${n1} kills or assists`;
+    case"kills_assists_weapon": return`${mb}Get ${n1} kills or assists with ${wpn}`;
+    case"kills_single":         return`${mb}Get ${n1} kills in a single match`;
+    case"kills_same_legend":    return`${mb}Kill ${n1} player(s) using the same legend as you`;
+    case"headshots":            return`${mb}Get ${n1} headshots`;
+    case"knockdowns":           return`${mb}Get ${n1} knockdowns`;
+    case"finishing_move":       return`${mb}Perform ${n1} finishing move(s)`;
+    case"top_finish":           return`${mb}Get a Top ${n1} finish ${n2} times`;
+    case"top_finish_events":    return`${mb}Finish Top ${n1} with ${n2} combined kills/knocks/assists`;
+    case"survive_rings":        return`${mb}Survive ${n1} ring closings`;
+    case"win":                  return`${mb}Win ${n1} match(es)`;
+    case"outlive":              return`${mb}Outlive ${n1} opponents`;
+    case"ranked_matches":       return`${mb}Play ${n1} ranked matches`;
+    case"revive":               return`${mb}Revive squadmates ${n1} times`;
+    case"restore_health":       return`${mb}Restore ${n1} health`;
+    case"restore_shields":      return`${mb}Restore ${n1} shields`;
+    case"open_bins":            return`${mb}Open ${n1} supply bins`;
+    case"loot_epic":            return`${mb}Loot ${n1} <span class="tag">Epic (purple)</span> items`;
+    case"loot_legendary":       return`${mb}Loot ${n1} <span class="tag">Legendary</span> items`;
+    case"loot_care_pkg":        return`${mb}Loot ${n1} neutral care package(s)`;
+    case"craft_replicator":     return`${mb}Craft ${n1} times at a replicator`;
+    case"obtain_arsenal":       return`${mb}Obtain ${n1} weapons from an Arsenal`;
+    case"equip_attachment":     return`${mb}Equip a weapon attachment in ${n1} different matches`;
+    case"thank_squadmate":      return`${mb}Thank a squadmate in ${n1} different matches`;
+    case"mantle_boost":         return`${mb}Perform ${n1} Mantle Boosts in a single match`;
+    case"reinforce_hardlight":  return`${mb}Reinforce ${n1} Hardlights as a ${cls1} legend`;
+    case"break_hardlight":      return`${mb}Break ${n1} hardlights`;
+    case"reminder":             return`<span style="color:var(--text2)">${c.reminder||"Reminder"}</span>`;
+    default: return"?";
+  }
+}
+
+function getTarget(c){
+  if(c.type==="reminder")return 1;
+  const t2=["top_finish","top_finish_events"];
+  if(t2.includes(c.type)&&c.n2)return parseInt(c.n2)||1;
+  return parseInt(c.n1)||1;
+}
+
+function statBucket(type){
+  const m={
+    play_matches:"matches",play_matches_class:"matches",ranked_matches:"matches",
+    dmg_general:"damage",dmg_class:"damage",dmg_weapon:"damage",dmg_hipfire:"damage",dmg_single:"damage",
+    kills:"kills",kills_assists:"kills",kills_assists_weapon:"kills",kills_single:"kills",kills_same_legend:"kills",
+    headshots:"headshots",knockdowns:"kills",survive_rings:"rings",
+    revive:"revives",restore_health:"health",restore_shields:"shields",win:"wins",
+  };
+  return m[type]||null;
+}
+
+function fmtN(n){if(!n&&n!==0)return"X";const v=parseInt(n)||0;return v.toLocaleString();}
+
+/* ================================================================
+   STATE
+================================================================ */
+const DS={
+  theme:"red",panel:0,selectedWeek:1,dailyEnabled:true,
+  mains:{Assault:"Fuse",Recon:"Sparrow",Skirmisher:"Octane",Support:"Mirage",Controller:"Caustic"},
+  weeks:{},
+  progress:{},
+  daily:{
+    fixed:{play2:{val:0,stars:1},play4:{val:0,legend:"Fuse",stars:2}},
+    slots:[
+      {id:"ds1",type:"dmg_general",n1:"3000",active:true,val:0,mode:"",stars:2},
+      {id:"ds2",type:"dmg_weapon",n1:"150",wpn:"Marksman Weapons",active:false,val:0,mode:"",stars:2},
+      {id:"ds3",type:"restore_shields",n1:"500",active:false,val:0,mode:"",stars:1},
+    ]
+  },
+  stats:{matches:0,damage:0,kills:0,revives:0,headshots:0,rings:0,health:0,shields:0,wins:0,legends:{},classes:{},weapons:{}}
+};
+
+let S=JSON.parse(JSON.stringify(DS));
+let _bEditId=null,_bWeek=null,_dEditIdx=null;
+
+function load(){
+  try{
+    const r=localStorage.getItem("cm5");
+    if(r){
+      const p=JSON.parse(r);
+      S={...DS,...p};
+      if(!S.daily)S.daily=DS.daily;
+      if(!S.daily.fixed)S.daily.fixed=DS.daily.fixed;
+      if(!S.daily.slots)S.daily.slots=DS.daily.slots;
+      if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));
+      if(!S.weeks)S.weeks={};
+      if(!S.mains)S.mains={...DS.mains};
+    }
+  }catch(e){}
+}
+function save(){localStorage.setItem("cm5",JSON.stringify(S));}
+
+/* ================================================================
+   TIME
+================================================================ */
+function getCurWk(){const ms=new Date()-SEA_START;if(ms<0)return 1;return Math.min(Math.floor(ms/(7*24*3600*1000))+1,SEA_WKS);}
+function getPW(wn){return wn<=6?{part:1,week:wn}:{part:2,week:wn-6};}
+function getCurPart(){return getPW(getCurWk()).part;}
+function nextWeeklyReset(){return new Date(SEA_START.getTime()+getCurWk()*7*24*3600*1000);}
+function nextDailyReset(){
+  const now=new Date();
+  const t=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),DAY_RST_UTC,0,0));
+  return now>=t?new Date(t.getTime()+86400000):t;
+}
+function fmtCd(ms){
+  if(ms<=0)return"00:00:00";
+  const s=Math.floor(ms/1000),d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60),sc=s%60;
+  if(d>0)return`${d}d ${h}h ${String(m).padStart(2,"0")}m`;
+  return`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sc).padStart(2,"0")}`;
+}
+
+/* ================================================================
+   MAINS & SPOTLIGHT ALGORITHM
+================================================================ */
+// Does a legend satisfy this challenge?
+function legSatisfies(leg,c){
+  const cls=LEG_CLASS[leg]||"";
+  if(c.type==="play_matches_class"||c.type==="dmg_class"){
+    return cls===(c.cls1||c.cls)||cls===(c.cls2||"");
+  }
+  if(c.type==="reinforce_hardlight"){
+    return cls===(c.cls1||c.cls);
+  }
+  // Generic play/damage challenges satisfy any legend
+  if(["play_matches","dmg_general","dmg_hipfire","dmg_single","dmg_weapon",
+      "kills","kills_assists","kills_single","kills_same_legend","kills_assists_weapon",
+      "headshots","knockdowns","finishing_move","top_finish","top_finish_events",
+      "survive_rings","win","outlive","ranked_matches","revive",
+      "restore_health","restore_shields","open_bins","loot_epic","loot_legendary",
+      "loot_care_pkg","craft_replicator","obtain_arsenal","equip_attachment",
+      "thank_squadmate","mantle_boost","break_hardlight"].includes(c.type)){
+    return true;
+  }
+  return false;
+}
+
+// Score each main against all incomplete weekly challenges
+// Returns array of {legend, cls, score, stars, challenges[]}
+function scoreMains(){
+  const curWn=getCurWk(),cp=getCurPart(),partStart=cp===1?1:7;
+  const dailyLeg=S.daily.fixed.play4.legend;
+  const dailyCls=LEG_CLASS[dailyLeg]||"";
+
+  const results=[];
+  CLASSES.forEach(cls=>{
+    const leg=S.mains[cls]||LEGS_BY_CLASS[cls][0];
+    let score=0,stars=0;
+    const matching=[];
+    for(let w=partStart;w<=curWn;w++){
+      (S.weeks[w]||[]).forEach(c=>{
+        if(c.type==="reminder")return;
+        const tgt=getTarget(c);
+        const val=S.progress[c.id]||0;
+        if(val>=tgt)return; // already done
+        if(legSatisfies(leg,c)){
+          score++;
+          stars+=parseInt(c.stars)||5;
+          const{part,week}=getPW(w);
+          matching.push({c,wlbl:`P${part}W${week}`});
+        }
+      });
+    }
+    // dailyMatch flag for sort priority — does NOT add to displayed stars
+    const dailyMatch=(LEG_CLASS[leg]||"")===(LEG_CLASS[dailyLeg]||"");
+    results.push({leg,cls,score,stars,matching,dailyMatch});
+  });
+
+  // Sort: daily match first, then score desc, then stars desc
+  results.sort((a,b)=>{
+    if(a.dailyMatch&&!b.dailyMatch)return-1;
+    if(!a.dailyMatch&&b.dailyMatch)return 1;
+    if(b.score!==a.score)return b.score-a.score;
+    return b.stars-a.stars;
+  });
+  return results;
+}
+
+/* ================================================================
+   MAIN HINT on challenge cards
+================================================================ */
+function getMainHint(c){
+  const classes=[];
+  if(c.cls1||c.cls)classes.push((c.cls1||c.cls).toLowerCase());
+  if(c.cls2)classes.push(c.cls2.toLowerCase());
+  if(!classes.length)return"";
+  // Check if daily legend satisfies any of the required classes
+  const dailyLeg=S.daily.fixed.play4.legend;
+  const dailyCls=(LEG_CLASS[dailyLeg]||"").toLowerCase();
+  if(classes.includes(dailyCls)){
+    return`<div class="main-hint">&#128165; Play as ${dailyLeg} (your daily)</div>`;
+  }
+  // Fall back to mains
+  const hints=[];
+  classes.forEach(cls=>{
+    const key=Object.keys(S.mains).find(k=>k.toLowerCase()===cls);
+    const m=key?S.mains[key]:null;
+    if(m)hints.push(m);
+  });
+  if(!hints.length)return"";
+  return`<div class="main-hint">&#128165; Play as ${hints.join(" or ")}</div>`;
+}
+
+/* ================================================================
+   RENDER CHALLENGE CARD
+================================================================ */
+function mkCard(c){
+  const tgt=getTarget(c);
+  const val=S.progress[c.id]||0;
+  const pct=Math.min(100,(val/tgt)*100);
+  const done=c.type==="reminder"?false:val>=tgt;
+  const syn=!done&&challengeHasSynergy(c);
+  const isReminder=c.type==="reminder";
+  const stars=parseInt(c.stars)||5;
+  const hasClassHint=["play_matches_class","dmg_class","reinforce_hardlight"].includes(c.type);
+
+  let cls="cc"+(done?" done":"")+(syn?" syn":"");
+
+  if(isReminder){
+    return`<div class="${cls}" data-id="${c.id}">
+      <div class="ctxt">${chText(c)}</div>
+      <div class="syntag" style="color:var(--text3)">Reminder only</div>
+    </div>`;
+  }
+
+  const starStr="&#11088;".repeat(Math.min(stars,10));
+  const mainHint=(!done&&hasClassHint)?getMainHint(c):"";
+  const synTag=syn?`<div class="syntag">&#9889; SYNERGY WITH DAILY</div>`:"";
+
+  return`<div class="${cls}" data-id="${c.id}">
+    <div class="ctxt">${chText(c)}</div>
+    <div style="position:absolute;top:9px;right:9px;display:flex;gap:4px">
+      <button class="sbtn" style="position:relative;top:auto;right:auto" onclick="starC('${c.id}',${tgt})">&#9733;</button>
+      <button class="sbtn" style="position:relative;top:auto;right:auto;color:var(--b2);border-color:var(--b);font-size:12px" onclick="editCard('${c.id}')">&#9998;</button>
+    </div>
+    <div class="prow">
+      <div class="btrack"><div class="bfill" style="width:${pct}%"></div><div class="blbl">${val.toLocaleString()} / ${tgt.toLocaleString()}</div></div>
+      <input class="pinput" type="text" inputmode="numeric" pattern="[0-9]*" value="${val}"
+        onblur="commitP('${c.id}',this.value)"
+        onkeydown="if(event.key==='Enter'){this.blur();}"
+        onfocus="this.select()">
+    </div>
+    <div class="cdone">&#10003; Completed</div>
+    <div class="star-badge">&#11088; ${stars} stars</div>
+    ${mainHint}
+    ${synTag}
+  </div>`;
+}
+
+function challengeHasSynergy(c){
+  const leg=S.daily.fixed.play4.legend;
+  const legCls=(LEG_CLASS[leg]||"").toLowerCase();
+  const activeWpns=new Set(S.daily.slots.filter(s=>s.active&&s.wpn).map(s=>s.wpn.toLowerCase()));
+  if(c.cls1&&legCls===c.cls1.toLowerCase())return true;
+  if(c.cls2&&legCls===c.cls2.toLowerCase())return true;
+  if(c.cls&&legCls===c.cls.toLowerCase())return true;
+  if(c.wpn&&activeWpns.has(c.wpn.toLowerCase()))return true;
+  return false;
+}
+
+/* ================================================================
+   PANEL 0: SPOTLIGHT
+================================================================ */
+/* ================================================================
+   PANEL 1: LEGEND
+================================================================ */
+let _selectedLegend=null;
+
+function getDefaultLegend(){
+  // Default: whoever satisfies most stars (same as Best Pick)
+  const scored=scoreMains();
+  const best=scored[0];
+  if(best&&best.score>0)return best.leg;
+  // Fallback to daily legend
+  return S.daily.fixed.play4.legend||"Fuse";
+}
+
+function rLegend(){
+  // Determine available legends: 5 mains + daily legend (deduplicated)
+  const dailyLeg=S.daily.fixed.play4.legend;
+  const mainsLegs=Object.values(S.mains);
+  const allLegs=[...new Set([dailyLeg,...mainsLegs])];
+
+  // Default selection
+  if(!_selectedLegend||!allLegs.includes(_selectedLegend)){
+    _selectedLegend=getDefaultLegend();
+  }
+
+  // Score each legend for star potential
+  const scored=scoreMains();
+  const scoreMap={};
+  scored.forEach(r=>{scoreMap[r.leg]=r;});
+
+  // Also score daily legend if not a main
+  if(!scoreMap[dailyLeg]){
+    const cls=LEG_CLASS[dailyLeg]||"";
+    const curWn=getCurWk(),cp=getCurPart(),ps=cp===1?1:7;
+    let sc=0,st=0,matching=[];
+    for(let w=ps;w<=curWn;w++){
+      (S.weeks[w]||[]).forEach(c=>{
+        if(c.type==="reminder")return;
+        const tgt=getTarget(c),val=S.progress[c.id]||0;
+        if(val>=tgt)return;
+        if(legSatisfies(dailyLeg,c)){sc++;st+=parseInt(c.stars)||5;const{part,week}=getPW(w);matching.push({c,wlbl:`P${part}W${week}`});}
+      });
+    }
+    scoreMap[dailyLeg]={leg:dailyLeg,cls,score:sc,stars:st,matching};
+  }
+
+  // Render picker row
+  const picker=document.getElementById("legendPickerRow");
+  picker.innerHTML=allLegs.map(leg=>{
+    const isDailyLeg=leg===dailyLeg;
+    const isMainAndDaily=isDailyLeg&&mainsLegs.includes(leg);
+    const isSelected=leg===_selectedLegend;
+    const sc=scoreMap[leg];
+    const stars=sc?sc.stars:0;
+    const border=isSelected?"2px solid var(--a2)":isDailyLeg?"2px solid var(--b2)":"1px solid var(--border)";
+    const bg=isSelected?"var(--bg2)":"var(--bg3)";
+    const glow=isMainAndDaily?"box-shadow:0 0 12px var(--syn-b);":"";
+    const crown=isMainAndDaily?"&#128081; ":"";
+    const legColor=isSelected?"var(--a2)":isDailyLeg?"var(--b2)":"var(--text2)";
+    return`<div onclick="selectLegend('${leg}')" style="cursor:pointer;padding:6px 10px;border-radius:4px;background:${bg};border:${border};${glow}flex-shrink:0;text-align:center;transition:all 0.15s">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:${legColor};white-space:nowrap">${crown}${leg}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3);margin-top:1px">${LEG_CLASS[leg]||""}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--star);margin-top:1px">&#11088; ${stars}</div>
+    </div>`;
+  }).join("");
+
+  // Render challenges for selected legend
+  const listEl=document.getElementById("legendChallengeList");
+  const curWn=getCurWk(),cp=getCurPart(),ps=cp===1?1:7;
+  let html="";
+  let totalCount=0,doneCount=0;
+
+  for(let w=ps;w<=curWn;w++){
+    const chs=S.weeks[w]||[];
+    const{part,week}=getPW(w);
+    const matching=chs.filter(c=>c.type!=="reminder"&&legSatisfies(_selectedLegend,c)&&(S.progress[c.id]||0)<getTarget(c));
+    if(!matching.length)continue;
+    const wd=matching.map(c=>{
+      const tgt=getTarget(c),val=S.progress[c.id]||0;
+      return{...c,val,tgt,done:val>=tgt,pct:Math.min(100,(val/tgt)*100)};
+    });
+    const inc=wd.filter(c=>!c.done).sort((a,b)=>b.pct-a.pct);
+    const done=wd.filter(c=>c.done);
+    totalCount+=matching.length;doneCount+=done.length;
+    html+=`<div class="wgrp"><div class="wghdr">Week ${week} <span>${done.length}/${matching.length}</span></div>${[...inc,...done].map(c=>mkCard(c)).join("")}</div>`;
+  }
+
+  // Daily challenges for this legend
+  const dailyMatches=[];
+  if(_selectedLegend===dailyLeg){
+    // Show all active dailies
+    if((S.daily.fixed.play4.val||0)<4)dailyMatches.push(mkDailyCard("play4"));
+    if((S.daily.fixed.play2.val||0)<2)dailyMatches.push(mkDailyCard("play2"));
+    S.daily.slots.forEach((_,i)=>{if(S.daily.slots[i].active&&!isDDone(i))dailyMatches.push(mkDailyCard(i));});
+  }
+
+  const cls=LEG_CLASS[_selectedLegend]||"";
+  const sc2=scoreMap[_selectedLegend];
+  const isDailyPick=_selectedLegend===dailyLeg;
+
+  listEl.innerHTML=`
+    <div style="padding:4px 0 12px">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;text-transform:uppercase;color:var(--a2)">${_selectedLegend}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text2);margin-top:2px">${cls}${isDailyPick?" &middot; TODAY'S DAILY":""}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text2);margin-top:4px">${doneCount}/${totalCount} weekly challenges &middot; &#11088; ${sc2?sc2.stars:0} potential stars</div>
+    </div>
+    ${dailyMatches.length?`<div class="spotlight-section"><div class="spotlight-section-hdr">&#9201; Daily</div>${dailyMatches.join("")}</div>`:""}
+    ${html||`<div class="t5empty" style="color:var(--text3)">No weekly challenges for ${_selectedLegend} this part.</div>`}
+  `;
+}
+
+function selectLegend(leg){
+  _selectedLegend=leg;
+  rLegend();
+}
+
+function rSpotlight(){
+  const el=document.getElementById("spotlightList");
+  let html="";
+
+  // SECTION 1: Incomplete dailies
+  const incompleteDailies=[];
+  const p2=S.daily.fixed.play2;
+  const p4=S.daily.fixed.play4;
+  if(S.dailyEnabled){
+    if((p2.val||0)<2)incompleteDailies.push({type:"play2",stars:p2.stars||1});
+    if((p4.val||0)<4)incompleteDailies.push({type:"play4",stars:p4.stars||2,leg:p4.legend});
+    S.daily.slots.forEach((sl,i)=>{
+      if(!sl.active||sl.type==="reminder")return;
+      const tgt=parseInt(sl.n1)||1;
+      if((sl.val||0)<tgt)incompleteDailies.push({type:"slot",idx:i,stars:parseInt(sl.stars)||2});
+    });
+    incompleteDailies.sort((a,b)=>(b.stars||0)-(a.stars||0));
+  }
+
+  if(incompleteDailies.length){
+    html+=`<div class="spotlight-section"><div class="spotlight-section-hdr">&#9201; Daily — Resets in ${fmtCd(nextDailyReset()-new Date())}</div>`;
+    incompleteDailies.forEach(d=>{
+      if(d.type==="play2"||d.type==="play4")html+=mkDailyCard(d.type);
+      else html+=mkDailyCard(d.idx);
+    });
+    html+="</div>";
+  }
+
+  // SECTION 2: Legend recommendation
+  const scored=scoreMains();
+  const best=scored[0];
+  if(best&&best.score>0){
+    const dailyLeg=S.daily.fixed.play4.legend;
+    const isDailyMatch=best.dailyMatch;
+    const why=best.matching.map(m=>`${m.wlbl}`).join(", ");
+    const totalStars=best.matching.reduce((s,m)=>s+(parseInt(m.c.stars)||5),0);
+    html+=`<div class="spotlight-section"><div class="spotlight-section-hdr">&#128165; Best Pick</div>
+      <div class="legend-rec">
+        <div class="legend-rec-name">${best.leg}</div>
+        <div class="legend-rec-cls">${best.cls}</div>
+        <div class="legend-rec-why">Satisfies <strong>${best.score}</strong> incomplete challenge${best.score!==1?"s":""} across ${why}</div>
+        <div class="legend-rec-stars">&#11088; ${totalStars} potential stars</div>
+      </div>`;
+
+    // Show all 5 mains ranked if more than one has score > 0
+    const withScore=scored.filter(r=>r.score>0);
+    if(withScore.length>1){
+      html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">`;
+      withScore.forEach(r=>{
+        const isBest=r.leg===best.leg;
+        html+=`<div style="padding:4px 10px;border-radius:3px;background:var(--bg3);border:1px solid ${isBest?"var(--syn-b)":"var(--border)"};font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:${isBest?"#ffc800":"var(--text2)"}">
+          ${r.leg} <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text3)">${r.score}&#x2715;</span>
+        </div>`;
+      });
+      html+="</div>";
+    }
+    html+="</div>";
+  }
+
+  // SECTION 3: Remaining high-priority challenges
+  const curWn=getCurWk(),cp=getCurPart(),partStart=cp===1?1:7;
+  const remaining=[];
+  for(let w=partStart;w<=curWn;w++){
+    (S.weeks[w]||[]).forEach(c=>{
+      if(c.type==="reminder")return;
+      const tgt=getTarget(c);
+      const val=S.progress[c.id]||0;
+      if(val>=tgt)return;
+      remaining.push({c,w,stars:parseInt(c.stars)||5});
+    });
+  }
+  // Sort: stars desc, then oldest week first
+  remaining.sort((a,b)=>{
+    if(b.stars!==a.stars)return b.stars-a.stars;
+    return a.w-b.w;
+  });
+
+  const top=remaining.slice(0,5);
+  if(top.length){
+    html+=`<div class="spotlight-section"><div class="spotlight-section-hdr">&#127919; Focus</div>`;
+    top.forEach(item=>{
+      const{part,week}=getPW(item.w);
+      html+=`<div><div class="t5lbl">P${part}W${week}</div>${mkCard(item.c)}</div>`;
+    });
+    html+="</div>";
+  }
+
+  if(!incompleteDailies.length&&(!best||best.score===0)&&!top.length){
+    html=`<div class="t5empty">Everything complete!<br>&#128081; Well played.</div>`;
+  }
+
+  el.innerHTML=html;
+}
+
+/* ================================================================
+   PANEL 1: DAILY
+================================================================ */
+function mkDailyCard(slot){
+  if(slot==="play2"){
+    const val=S.daily.fixed.play2.val||0,done=val>=2,stars=S.daily.fixed.play2.stars||1;
+    return`<div class="dc${done?" done":""}">
+      <div class="dhdr"><div class="dtxt">Play <span class="num">2</span> matches</div></div>
+      <div class="star-badge">&#11088; ${stars} star${stars!==1?"s":""}</div>
+      <div class="crow"><button class="cbtn" onclick="fixedCtr('play2',-1)">&#8722;</button><div class="cdisp">${val}</div><span class="ctarg">/ 2</span><button class="cbtn" onclick="fixedCtr('play2',1)">+</button></div>
+      <div class="ddone">&#10003; Completed</div>
+    </div>`;
+  }
+  if(slot==="play4"){
+    const val=S.daily.fixed.play4.val||0,leg=S.daily.fixed.play4.legend||"Fuse",done=val>=4,stars=S.daily.fixed.play4.stars||2;
+    const opts=ALL_LEGS.map(l=>`<option value="${l}"${l===leg?" selected":""}>${l}</option>`).join("");
+    return`<div class="dc${done?" done":""}">
+      <div class="dhdr"><div class="dtxt">Play <span class="num">4</span> matches as</div></div>
+      <select class="dsel" onchange="S.daily.fixed.play4.legend=this.value;save();renderP(S.panel);">${opts}</select>
+      <div class="star-badge">&#11088; ${stars} star${stars!==1?"s":""}</div>
+      <div class="crow" style="margin-top:8px"><button class="cbtn" onclick="fixedCtr('play4',-1)">&#8722;</button><div class="cdisp">${val}</div><span class="ctarg">/ 4</span><button class="cbtn" onclick="fixedCtr('play4',1)">+</button></div>
+      <div class="ddone">&#10003; Completed</div>
+    </div>`;
+  }
+  const idx=slot,sl=S.daily.slots[idx];
+  if(!sl)return"";
+  const tgt=parseInt(sl.n1)||1,val=sl.val||0,done=val>=tgt,pct=Math.min(100,(val/tgt)*100),stars=parseInt(sl.stars)||2;
+  return`<div class="dc${!sl.active?" null-mode":""}${done&&sl.active?" done":""}">
+    <div class="dhdr">
+      <div class="dtxt">${chText({...sl})}</div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <div class="ntog${sl.active?" on":""}" onclick="toggleSlot(${idx})">${sl.active?"●":"○"}</div>
+        <div class="ntog" style="color:var(--b2);border-color:var(--b)" onclick="editDailySlot(${idx})">&#9998;</div>
+      </div>
+    </div>
+    <div class="star-badge">&#11088; ${stars} star${stars!==1?"s":""}</div>
+    <div class="prow">
+      <div class="btrack"><div class="bfill" style="width:${pct}%;background:var(--b)"></div><div class="blbl">${val.toLocaleString()} / ${tgt.toLocaleString()}</div></div>
+      <input class="pinput" type="text" inputmode="numeric" pattern="[0-9]*" value="${val}"
+        onblur="commitDV(${idx},this.value)" onkeydown="if(event.key==='Enter'){this.blur();}" onfocus="this.select()">
+    </div>
+    <div class="ddone">&#10003; Completed</div>
+  </div>`;
+}
+
+function rDaily(){
+  if(!S.dailyEnabled){document.getElementById("dList").innerHTML=`<div class="t5empty" style="color:var(--text3)">Daily tracking disabled.</div>`;return;}
+  const slots=["play2","play4",...S.daily.slots.map((_,i)=>i)];
+  slots.sort((a,b)=>{
+    const da=isDDone(a),db=isDDone(b),aa=isDAct(a),ab=isDAct(b);
+    if(!aa&&ab)return 1;if(aa&&!ab)return -1;
+    if(da&&!db)return 1;if(!da&&db)return -1;
+    return 0;
+  });
+  document.getElementById("dList").innerHTML=slots.map(s=>mkDailyCard(s)).join("");
+}
+function isDDone(s){
+  if(s==="play2")return(S.daily.fixed.play2.val||0)>=2;
+  if(s==="play4")return(S.daily.fixed.play4.val||0)>=4;
+  const sl=S.daily.slots[s];return sl&&sl.active&&(sl.val||0)>=(parseInt(sl.n1)||1);
+}
+function isDAct(s){if(s==="play2"||s==="play4")return true;return S.daily.slots[s]&&S.daily.slots[s].active;}
+
+/* ================================================================
+   PANEL 2: WEEKLY
+================================================================ */
+function rWeekSel(){
+  const sel=document.getElementById("wSel"),curWn=getCurWk(),cp=getCurPart(),partStart=cp===1?1:7;
+  sel.innerHTML="";
+  for(let w=partStart;w<=curWn;w++){
+    const{part,week}=getPW(w);
+    const chs=S.weeks[w]||[];
+    const countable=chs.filter(c=>c.type!=="reminder");
+    const done=countable.filter(c=>(S.progress[c.id]||0)>=getTarget(c)).length;
+    const total=countable.length;
+    const allDone=total>0&&done===total;
+    const btn=document.createElement("button");
+    btn.className="wbtn"+(w===S.selectedWeek?" on":"")+(w===7?" p2":"")+(allDone?" wbtn-done":"");
+    btn.innerHTML=`<span>W${week}</span><span style="display:block;font-size:10px;font-weight:400;opacity:0.8;font-family:'Share Tech Mono',monospace;letter-spacing:0">${total>0?done+"/"+total:"—"}</span>`;
+    btn.onclick=()=>{S.selectedWeek=w;save();rWeekSel();rWeekly();};
+    sel.appendChild(btn);
+  }
+  if(S.selectedWeek<partStart||S.selectedWeek>curWn){S.selectedWeek=curWn;save();}
+}
+
+function rWeekly(){
+  const wn=S.selectedWeek,{part,week}=getPW(wn),chs=S.weeks[wn]||[];
+  const wd=chs.map(c=>{
+    const tgt=getTarget(c),val=c.type==="reminder"?0:(S.progress[c.id]||0);
+    return{...c,val,tgt,done:c.type!=="reminder"&&val>=tgt,pct:Math.min(100,(val/tgt)*100)};
+  });
+  const inc=wd.filter(c=>!c.done).sort((a,b)=>b.pct-a.pct);
+  const done=wd.filter(c=>c.done);
+  const countable=chs.filter(c=>c.type!=="reminder").length;
+  const dc=done.length,C=119.4,rp=countable>0?(dc/countable)*100:0;
+  document.getElementById("wkTitle").textContent=`Part ${part} · Week ${week}`;
+  document.getElementById("wkSub").textContent=`${dc} / ${countable} completed`;
+  document.getElementById("wkRing").style.strokeDashoffset=C-(C*rp/100);
+  document.getElementById("wkPct").textContent=Math.round(rp)+"%";
+  const listEl=document.getElementById("wkList");
+  listEl.innerHTML=(!chs.length?`<div class="empty-week">No challenges yet. Add them below.</div>`:"")+[...inc,...done].map(c=>mkCard(c)).join("");
+  if(chs.length<10)listEl.innerHTML+=`<button class="add-challenge-btn" onclick="openBuilder(${wn})">+ Add Challenge</button>`;
+  else listEl.innerHTML+=`<div style="text-align:center;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text3);padding:6px">Week full (10/10)</div>`;
+}
+
+/* ================================================================
+   PANEL 3: ALL
+================================================================ */
+function rAll(){
+  const cp=getCurPart(),curWn=getCurWk(),partStart=cp===1?1:7;
+  let td=0,ta=0,html="";
+  for(let w=partStart;w<=curWn;w++){
+    const chs=S.weeks[w]||[],{part,week}=getPW(w);
+    const countable=chs.filter(c=>c.type!=="reminder");
+    const done=countable.filter(c=>(S.progress[c.id]||0)>=getTarget(c)).length;
+    td+=done;ta+=countable.length;
+    const wd=chs.map(c=>{const tgt=getTarget(c),val=c.type==="reminder"?0:(S.progress[c.id]||0);return{...c,val,tgt,done:c.type!=="reminder"&&val>=tgt,pct:Math.min(100,(val/tgt)*100)};});
+    const inc=wd.filter(c=>!c.done).sort((a,b)=>b.pct-a.pct);
+    const dn=wd.filter(c=>c.done);
+    html+=`<div class="wgrp"><div class="wghdr">Week ${week} <span>${done}/${countable.length}</span></div>${[...inc,...dn].map(c=>mkCard(c)).join("")}</div>`;
+  }
+  const rp=ta>0?(td/ta)*100:0,C=119.4;
+  document.getElementById("allTitle").textContent=`Part ${cp}`;
+  document.getElementById("allSub").textContent=`${td} / ${ta} completed`;
+  document.getElementById("allRing").style.strokeDashoffset=C-(C*rp/100);
+  document.getElementById("allPct").textContent=Math.round(rp)+"%";
+  document.getElementById("allList").innerHTML=html;
+}
+
+/* ================================================================
+   PANEL NAV
+================================================================ */
+const PLBLS=["Spotlight","Legend","Daily","Weekly","All"];
+const PANEL_IDS=["p0","pLegend","p1","p2","p3"];
+function setPanel(n){
+  S.panel=n;
+  document.querySelectorAll(".panel").forEach(p=>p.classList.remove("on"));
+  const active=document.getElementById(PANEL_IDS[n]);
+  if(active)active.classList.add("on");
+  document.querySelectorAll(".pdot").forEach((d,i)=>d.classList.toggle("on",i===n));
+  document.getElementById("pLbl").textContent=PLBLS[n];
+
+
+  renderP(n);
+}
+function shiftP(d){setPanel((S.panel+d+5)%5);}
+function renderP(n){if(n===0)rSpotlight();if(n===1)rLegend();if(n===2)rDaily();if(n===3){rWeekSel();rWeekly();}if(n===4)rAll();}
+
+/* ================================================================
+   ACTIONS
+================================================================ */
+function commitP(id,val){
+  const nv=Math.max(0,parseInt(val)||0),ov=S.progress[id]||0,delta=nv-ov;
+  S.progress[id]=nv;
+  if(delta>0){
+    let type=null;
+    outer:for(const w in S.weeks){for(const c of S.weeks[w]){if(c.id===id){type=c.type;break outer;}}}
+    const b=statBucket(type);if(b)S.stats[b]=(S.stats[b]||0)+delta;
+  }
+  save();setTimeout(()=>renderP(S.panel),50);
+}
+function starC(id,tgt){S.progress[id]=(S.progress[id]||0)>=tgt?0:tgt;save();renderP(S.panel);}
+function editCard(id){for(const w in S.weeks){if((S.weeks[w]||[]).find(c=>c.id===id)){openBuilder(parseInt(w),id);return;}}}
+
+function fixedCtr(slot,d){
+  const s=S.daily.fixed[slot],tgt=slot==="play2"?2:4;
+  s.val=Math.max(0,Math.min((s.val||0)+d,tgt*2));
+  if(slot==="play4"&&d>0){
+    S.daily.fixed.play2.val=Math.min((S.daily.fixed.play2.val||0)+1,4);
+    addStat("matches",1);
+    const leg=S.daily.fixed.play4.legend,legCls=(LEG_CLASS[leg]||"").toLowerCase();
+    const curWn=getCurWk(),cp=getCurPart(),ps=cp===1?1:7;
+    for(let w=ps;w<=curWn;w++){
+      (S.weeks[w]||[]).forEach(c=>{
+        if(c.type!=="play_matches_class")return;
+        if((c.cls1||c.cls||"").toLowerCase()!==legCls&&(c.cls2||"").toLowerCase()!==legCls)return;
+        const tgt2=getTarget(c),cur=S.progress[c.id]||0;
+        if(cur<tgt2)S.progress[c.id]=cur+1;
+      });
+    }
+  }
+  if(slot==="play2"&&d>0){
+    addStat("matches",1);
+    const curWn=getCurWk(),cp=getCurPart(),ps=cp===1?1:7;
+    for(let w=ps;w<=curWn;w++){
+      (S.weeks[w]||[]).forEach(c=>{
+        if(c.type!=="play_matches")return;
+        const tgt2=getTarget(c),cur=S.progress[c.id]||0;
+        if(cur<tgt2)S.progress[c.id]=cur+1;
+      });
+    }
+  }
+  save();renderP(S.panel);
+}
+
+function commitDV(idx,val){
+  const sl=S.daily.slots[idx];if(!sl)return;
+  const nv=Math.max(0,parseInt(val)||0),ov=sl.val||0,delta=nv-ov;
+  sl.val=nv;
+  if(delta>0){const b=statBucket(sl.type);if(b)addStat(b,delta);}
+  save();setTimeout(()=>renderP(S.panel),50);
+}
+function addStat(b,delta){if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));if(delta>0&&typeof S.stats[b]==="number")S.stats[b]+=delta;}
+function toggleSlot(idx){S.daily.slots[idx].active=!S.daily.slots[idx].active;save();rDaily();}
+
+/* ================================================================
+   CHALLENGE BUILDER
+================================================================ */
+const BR_ONLY_TYPES=["obtain_arsenal","survive_rings","reinforce_hardlight","break_hardlight",
+  "craft_replicator","top_finish","win","top_finish_events","loot_care_pkg","revive","open_bins","outlive"];
+const DUAL_CLASS=["play_matches_class","dmg_class"];
+const SINGLE_CLASS=["reinforce_hardlight"];
+const NEEDS_WPN=["dmg_weapon","kills_assists_weapon"];
+const NEEDS_N2=["top_finish","top_finish_events"];
+const NEEDS_MODE=["play_matches","play_matches_class","dmg_general","dmg_class","kills","kills_assists","kills_assists_weapon","top_finish","top_finish_events","survive_rings","win","open_bins","loot_care_pkg","finishing_move","ranked_matches","outlive","dmg_single","loot_epic","loot_legendary","break_hardlight","obtain_arsenal","craft_replicator"];
+
+function openBuilder(wn,editId){
+  _bWeek=wn;_bEditId=editId||null;
+  document.getElementById("builderTitle").textContent=editId?"Edit Challenge":"Add Challenge";
+  document.getElementById("bType").value="";
+  document.getElementById("bN1").value="";document.getElementById("bN2").value="";
+  document.getElementById("bMode").value="";document.getElementById("bReminder").value="";
+  document.getElementById("bStars").value="5";
+  if(editId){
+    const c=(S.weeks[wn]||[]).find(x=>x.id===editId);
+    if(c){
+      document.getElementById("bType").value=c.type;
+      document.getElementById("bN1").value=c.n1||"";
+      document.getElementById("bN2").value=c.n2||"";
+      if(c.cls1||c.cls)document.getElementById("bCls1").value=c.cls1||c.cls;
+      if(c.cls2)document.getElementById("bCls2").value=c.cls2;
+      if(c.wpn)document.getElementById("bWpn").value=c.wpn;
+      document.getElementById("bMode").value=c.mode||"";
+      document.getElementById("bStars").value=c.stars||"5";
+      if(c.reminder)document.getElementById("bReminder").value=c.reminder;
+    }
+  }
+  onBuilderChange();
+  document.getElementById("ovBuilder").classList.add("on");
+}
+function closeBuilder(){document.getElementById("ovBuilder").classList.remove("on");}
+
+function onBuilderChange(){
+  const t=document.getElementById("bType").value;
+  const show=(id,v)=>document.getElementById(id).style.display=v?"":"none";
+  const isBR=BR_ONLY_TYPES.includes(t);
+  show("bN1Wrap",t&&t!=="reminder");
+  show("bN2Wrap",NEEDS_N2.includes(t));
+  show("bClassWrap",DUAL_CLASS.includes(t));
+  show("bSingleClassWrap",SINGLE_CLASS.includes(t));
+  show("bWpnWrap",NEEDS_WPN.includes(t));
+  show("bStarsWrap",t&&t!=="reminder");
+  show("bReminderWrap",t==="reminder");
+  // BR-only types: show locked label instead of dropdown
+  const modeWrap=document.getElementById("bModeWrap");
+  const modeSel=document.getElementById("bMode");
+  const brLock=document.getElementById("bBRLock");
+  if(isBR){
+    modeWrap.style.display="";
+    modeSel.style.display="none";
+    if(brLock)brLock.style.display="";
+    modeSel.value="br";
+  } else if(NEEDS_MODE.includes(t)){
+    modeWrap.style.display="";
+    modeSel.style.display="";
+    if(brLock)brLock.style.display="none";
+  } else {
+    modeWrap.style.display="none";
+  }
+  const nl={top_finish:["Top Position","Times"],top_finish_events:["Top Position","Total Events"]};
+  if(nl[t]){document.getElementById("bN1Lbl").textContent=nl[t][0];document.getElementById("bN2Lbl").textContent=nl[t][1];}
+  updatePreview();
+}
+
+function updatePreview(){
+  const t=document.getElementById("bType").value;
+  if(!t){document.getElementById("bPreview").textContent="Select a challenge type";return;}
+  const c={type:t,n1:document.getElementById("bN1").value||"X",n2:document.getElementById("bN2").value||"X",
+    cls1:document.getElementById("bCls1").value,cls2:document.getElementById("bCls2").value||null,
+    cls:document.getElementById("bSingleCls")?document.getElementById("bSingleCls").value:"",
+    wpn:document.getElementById("bWpn").value,mode:document.getElementById("bMode").value,
+    reminder:document.getElementById("bReminder").value};
+  document.getElementById("bPreview").innerHTML=chText(c);
+}
+
+function saveChallenge(){
+  const t=document.getElementById("bType").value;
+  if(!t){alert("Select a challenge type.");return;}
+  if(!S.weeks[_bWeek])S.weeks[_bWeek]=[];
+  if(!_bEditId&&S.weeks[_bWeek].length>=10){
+    closeBuilder();
+    document.getElementById("ovConfirmTitle").textContent="Week Full";
+    document.getElementById("ovConfirmBody").innerHTML=`This week already has <strong>10 challenges</strong>.<br>Was this meant for a different week?`;
+    document.getElementById("ovConfirmBtn").textContent="Got It";
+    document.getElementById("ovConfirmBtn").onclick=()=>{closeOv("ovConfirm");document.getElementById("ovConfirmBtn").textContent="Confirm";};
+    document.getElementById("ovConfirm").classList.add("on");
+    return;
+  }
+  const c={
+    id:_bEditId||("c_"+Date.now()),type:t,
+    n1:document.getElementById("bN1").value||"0",
+    n2:NEEDS_N2.includes(t)?document.getElementById("bN2").value||null:null,
+    cls1:DUAL_CLASS.includes(t)?document.getElementById("bCls1").value:null,
+    cls2:DUAL_CLASS.includes(t)?(document.getElementById("bCls2").value||null):null,
+    cls:SINGLE_CLASS.includes(t)?document.getElementById("bSingleCls").value:null,
+    wpn:NEEDS_WPN.includes(t)?document.getElementById("bWpn").value:null,
+    mode:NEEDS_MODE.includes(t)?document.getElementById("bMode").value:"",
+    stars:parseInt(document.getElementById("bStars").value)||5,
+    reminder:t==="reminder"?document.getElementById("bReminder").value:null,
+  };
+  if(_bEditId){const idx=S.weeks[_bWeek].findIndex(x=>x.id===_bEditId);if(idx>=0)S.weeks[_bWeek][idx]=c;}
+  else S.weeks[_bWeek].push(c);
+  save();closeBuilder();renderP(S.panel);
+}
+
+/* ================================================================
+   DAILY BUILDER
+================================================================ */
+function editDailySlot(idx){
+  _dEditIdx=idx;
+  const sl=S.daily.slots[idx];
+  document.getElementById("dbType").value=sl.type||"dmg_general";
+  document.getElementById("dbN1").value=sl.n1||"";
+  if(sl.n2)document.getElementById("dbN2").value=sl.n2;
+  if(sl.cls1||sl.cls)document.getElementById("dbCls1").value=sl.cls1||sl.cls;
+  if(sl.cls2)document.getElementById("dbCls2").value=sl.cls2;
+  if(sl.cls)document.getElementById("dbSingleCls").value=sl.cls;
+  if(sl.wpn)document.getElementById("dbWpn").value=sl.wpn;
+  document.getElementById("dbMode").value=sl.mode||"";
+  document.getElementById("dbStars").value=sl.stars||"2";
+  if(sl.reminder)document.getElementById("dbReminder").value=sl.reminder||"";
+  onDailyBuilderChange();updateDailyPreview();
+  document.getElementById("ovDailyBuilder").classList.add("on");
+}
+function onDailyBuilderChange(){
+  const t=document.getElementById("dbType").value;
+  const show=(id,v)=>document.getElementById(id).style.display=v?"":"none";
+  const DB_BR_ONLY=["obtain_arsenal","survive_rings","reinforce_hardlight","break_hardlight",
+    "craft_replicator","top_finish","win","top_finish_events","loot_care_pkg","revive","open_bins","outlive"];
+  const DB_DUAL_CLASS=["play_matches_class","dmg_class"];
+  const DB_SINGLE_CLASS=["reinforce_hardlight"];
+  const DB_NEEDS_WPN=["dmg_weapon","kills_assists_weapon"];
+  const DB_NEEDS_N2=["top_finish","top_finish_events"];
+  const DB_NEEDS_MODE=["play_matches","play_matches_class","dmg_general","dmg_class","kills","kills_assists",
+    "kills_assists_weapon","top_finish","top_finish_events","survive_rings","win","open_bins","loot_care_pkg",
+    "finishing_move","ranked_matches","outlive","dmg_single","loot_epic","loot_legendary","break_hardlight",
+    "obtain_arsenal","craft_replicator"];
+  const isBR=DB_BR_ONLY.includes(t);
+  show("dbN1Wrap",t!=="reminder");
+  show("dbN2Wrap",DB_NEEDS_N2.includes(t));
+  show("dbClassWrap",DB_DUAL_CLASS.includes(t));
+  show("dbSingleClassWrap",DB_SINGLE_CLASS.includes(t));
+  show("dbWpnWrap",DB_NEEDS_WPN.includes(t));
+  show("dbReminderWrap",t==="reminder");
+  const modeWrap=document.getElementById("dbModeWrap");
+  const modeSel=document.getElementById("dbMode");
+  const brLock=document.getElementById("dbBRLock");
+  if(isBR){
+    modeWrap.style.display="";modeSel.style.display="none";
+    if(brLock)brLock.style.display="";modeSel.value="br";
+  } else if(DB_NEEDS_MODE.includes(t)){
+    modeWrap.style.display="";modeSel.style.display="";
+    if(brLock)brLock.style.display="none";
+  } else {
+    modeWrap.style.display="none";
+  }
+  const nl={top_finish:["Top Position","Times"],top_finish_events:["Top Position","Total Events"]};
+  const n1lbl=document.getElementById("dbN1Lbl");
+  const n2lbl=document.getElementById("dbN2Lbl");
+  if(nl[t]&&n1lbl)n1lbl.textContent=nl[t][0];
+  if(nl[t]&&n2lbl)n2lbl.textContent=nl[t][1];
+  updateDailyPreview();
+}
+function updateDailyPreview(){
+  const t=document.getElementById("dbType").value;
+  const c={type:t,
+    n1:document.getElementById("dbN1")?.value||"X",
+    n2:document.getElementById("dbN2")?.value||"X",
+    cls1:document.getElementById("dbCls1")?.value||"",
+    cls2:document.getElementById("dbCls2")?.value||null,
+    cls:document.getElementById("dbSingleCls")?.value||"",
+    wpn:document.getElementById("dbWpn")?.value||"",
+    mode:document.getElementById("dbMode")?.value||"",
+    reminder:document.getElementById("dbReminder")?.value||""};
+  document.getElementById("dbPreview").innerHTML=chText(c);
+}
+function saveDailySlot(){
+  const t=document.getElementById("dbType").value,sl=S.daily.slots[_dEditIdx];
+  const DB_DUAL_CLASS=["play_matches_class","dmg_class"];
+  const DB_SINGLE_CLASS=["reinforce_hardlight"];
+  const DB_NEEDS_WPN=["dmg_weapon","kills_assists_weapon"];
+  const DB_NEEDS_N2=["top_finish","top_finish_events"];
+  sl.type=t;
+  sl.n1=document.getElementById("dbN1")?.value||"0";
+  sl.n2=DB_NEEDS_N2.includes(t)?document.getElementById("dbN2")?.value||null:null;
+  sl.cls1=DB_DUAL_CLASS.includes(t)?document.getElementById("dbCls1").value:null;
+  sl.cls2=DB_DUAL_CLASS.includes(t)?(document.getElementById("dbCls2").value||null):null;
+  sl.cls=DB_SINGLE_CLASS.includes(t)?document.getElementById("dbSingleCls").value:null;
+  sl.wpn=DB_NEEDS_WPN.includes(t)?document.getElementById("dbWpn").value:null;
+  sl.mode=document.getElementById("dbMode")?.value||"";
+  sl.stars=parseInt(document.getElementById("dbStars").value)||2;
+  sl.reminder=t==="reminder"?document.getElementById("dbReminder").value:null;
+  sl.val=0;save();closeOv("ovDailyBuilder");rDaily();
+}
+
+/* ================================================================
+   SETTINGS
+================================================================ */
+function showSettings(){
+  // Populate main selects
+  CLASSES.forEach(cls=>{
+    const sel=document.getElementById("main"+cls);
+    if(!sel)return;
+    sel.innerHTML="";
+    LEGS_BY_CLASS[cls].sort().forEach(l=>{
+      const o=document.createElement("option");
+      o.value=l;o.textContent=l;
+      if(l===(S.mains[cls]||LEGS_BY_CLASS[cls][0]))o.selected=true;
+      sel.appendChild(o);
+    });
+  });
+  document.getElementById("dailyToggle").classList.toggle("on",S.dailyEnabled);
+  document.getElementById("ovSettings").classList.add("on");
+}
+function saveMain(cls,val){S.mains[cls]=val;save();}
+function toggleDailyEnabled(){S.dailyEnabled=!S.dailyEnabled;document.getElementById("dailyToggle").classList.toggle("on",S.dailyEnabled);save();}
+function confirmClearAll(){
+  closeOv("ovSettings");
+  document.getElementById("ovConfirmTitle").textContent="Clear All?";
+  document.getElementById("ovConfirmBody").innerHTML="This will reset <strong>all progress</strong> across every week and daily. This cannot be undone.";
+  document.getElementById("ovConfirmBtn").textContent="Confirm";
+  document.getElementById("ovConfirmBtn").onclick=hardReset;
+  document.getElementById("ovConfirm").classList.add("on");
+}
+function hardReset(){
+  S.progress={};S.daily.fixed.play2.val=0;S.daily.fixed.play4.val=0;
+  S.daily.slots.forEach(s=>{s.val=0;});S.stats=JSON.parse(JSON.stringify(DS.stats));
+  save();closeOv("ovConfirm");renderP(S.panel);
+}
+
+/* ================================================================
+   EXPORT / IMPORT
+================================================================ */
+function exportData(){
+  const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  const _d=new Date(),_pad=n=>String(n).padStart(2,"0");a.download="cm_apex_"+_d.getFullYear()+"-"+_pad(_d.getMonth()+1)+"-"+_pad(_d.getDate())+"_"+_pad(_d.getHours())+_pad(_d.getMinutes())+".json";
+  a.click();URL.revokeObjectURL(a.href);
+}
+function importData(ev){
+  const file=ev.target.files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      S={...DS,...data};if(!S.daily)S.daily=DS.daily;if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));if(!S.weeks)S.weeks={};if(!S.mains)S.mains={...DS.mains};
+      save();setTheme(S.theme||"red");setPanel(0);alert("Imported successfully.");
+    }catch{alert("Invalid save file.");}
+  };
+  r.readAsText(file);ev.target.value="";
+}
+
+/* ================================================================
+   STATS
+================================================================ */
+function showStats(){
+  const st=S.stats||{};
+  const sr=(l,v)=>`<div class="stat-row"><span class="stat-lbl">${l}</span><span class="stat-val">${typeof v==="number"?v.toLocaleString():v}</span></div>`;
+  const ss=t=>`<div class="stat-section">${t}</div>`;
+  let html=ss("Combat");
+  html+=sr("Matches Played",st.matches||0)+sr("Total Damage",st.damage||0)+sr("Kills / Assists",st.kills||0)+sr("Revives",st.revives||0)+sr("Headshots",st.headshots||0)+sr("Ring Closings Survived",st.rings||0)+sr("Health Restored",st.health||0)+sr("Shields Restored",st.shields||0)+sr("Wins",st.wins||0);
+  const legs=Object.entries(st.legends||{}).sort((a,b)=>b[1]-a[1]);
+  if(legs.length){html+=ss("Legend Appearances (Daily)");legs.forEach(([l,n])=>html+=sr(l,n));}
+  const cls=Object.entries(st.classes||{}).sort((a,b)=>b[1]-a[1]);
+  if(cls.length){html+=ss("Class Appearances (Daily)");cls.forEach(([c,n])=>html+=sr(c,n));}
+  const wpns=Object.entries(st.weapons||{}).sort((a,b)=>b[1]-a[1]);
+  if(wpns.length){html+=ss("Weapon Appearances (Daily)");wpns.forEach(([w,n])=>html+=sr(w,n));}
+  if(!legs.length&&!cls.length&&!wpns.length&&!st.matches&&!st.damage)html+=`<div style="text-align:center;padding:20px;color:var(--text3);font-family:'Share Tech Mono',monospace;font-size:12px">No stats yet.</div>`;
+  document.getElementById("statsBody").innerHTML=html;
+  document.getElementById("ovStats").classList.add("on");
+}
+
+/* ================================================================
+   THEME
+================================================================ */
+function setTheme(t){
+  S.theme=t;
+  document.documentElement.dataset.theme=t==="red"?"":t;
+  document.querySelectorAll(".tbtn").forEach(b=>b.classList.toggle("active",b.dataset.t===t));
+  save();
+}
+
+/* ================================================================
+   OVERLAYS
+================================================================ */
+function closeOv(id){document.getElementById(id).classList.remove("on");}
+
+/* ================================================================
+   INFO BAR + RESET DETECTION
+================================================================ */
+let _lastD=null,_lastW=null;
+function setChipUrgency(id, msLeft, pulseThresh, blinkThresh){
+  const el=document.querySelector(`#${id}`)?.closest?.('.chip')||document.getElementById(id)?.parentElement?.parentElement;
+  // find the chip wrapper — chips contain chip-lbl and chip-val
+  const chips=document.querySelectorAll('.chip');
+  let chip=null;
+  chips.forEach(c=>{const v=c.querySelector('#'+id);if(v)chip=c;});
+  if(!chip)return;
+  chip.classList.remove('urgent','chip-pulse','chip-blink');
+  if(msLeft<=blinkThresh){chip.classList.add('urgent','chip-blink');}
+  else if(msLeft<=pulseThresh){chip.classList.add('urgent','chip-pulse');}
+}
+
+function updInfo(){
+  const now=new Date(),wn=getCurWk(),{part,week}=getPW(wn);
+  const end=new Date(SEA_START.getTime()+SEA_WKS*7*24*3600*1000);
+  const dl=Math.floor((end-now)/86400000); // whole days, like the in-game timer
+  document.getElementById("iSeason").textContent=`S30 P${part}W${week}`;
+  const weeklyMs=nextWeeklyReset()-now;
+  const dailyMs=nextDailyReset()-now;
+  document.getElementById("iWeekly").textContent=fmtCd(weeklyMs);
+  document.getElementById("iDaily").textContent=fmtCd(dailyMs);
+  document.getElementById("iEnd").textContent=`${dl}d left`;
+  const dv=document.getElementById("dResetVal");if(dv)dv.textContent=fmtCd(dailyMs);
+  // Urgency: daily pulse <60m, blink <15m / weekly pulse <8h, blink <60m
+  setChipUrgency("iWeekly", weeklyMs, 8*3600*1000, 60*60*1000);
+  setChipUrgency("iDaily",  dailyMs,  60*60*1000,  15*60*1000);
+}
+function chkResets(){
+  const now=new Date(),wn=getCurWk();
+  const db=nextDailyReset().getTime()-86400000;
+  if(_lastD===null){_lastD=db;}
+  else if(now.getTime()>_lastD+86400000){
+    _lastD+=86400000;
+    trackLegApp();
+    const wpnSlot=S.daily.slots.find(s=>s.type==="dmg_weapon"&&s.active);
+    if(wpnSlot&&wpnSlot.wpn){if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));S.stats.weapons[wpnSlot.wpn]=(S.stats.weapons[wpnSlot.wpn]||0)+1;}
+    save();
+    S.daily.fixed.play2.val=0;S.daily.fixed.play4.val=0;S.daily.slots.forEach(s=>{s.val=0;});
+    save();renderP(S.panel);
+    document.getElementById("ovResetTitle").textContent="Daily Reset";
+    document.getElementById("ovResetBody").innerHTML="Your daily challenges have reset.<br><strong>Good luck today.</strong>";
+    document.getElementById("ovReset").classList.add("on");
+  }
+  if(_lastW===null){_lastW=wn;}
+  else if(wn!==_lastW){
+    const{part,week}=getPW(wn);_lastW=wn;S.selectedWeek=wn;save();renderP(S.panel);
+    document.getElementById("ovResetTitle").textContent=`Week ${week} Live`;
+    document.getElementById("ovResetBody").innerHTML=`Part ${part}, Week ${week} is now active.<br><strong>Add your new challenges to get started.</strong>`;
+    document.getElementById("ovReset").classList.add("on");
+  }
+}
+function trackLegApp(){
+  if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));
+  const leg=S.daily.fixed.play4.legend||"Unknown",cls=LEG_CLASS[leg]||"Unknown";
+  S.stats.legends[leg]=(S.stats.legends[leg]||0)+1;
+  S.stats.classes[cls]=(S.stats.classes[cls]||0)+1;
+}
+
+/* ================================================================
+   INIT
+================================================================ */
+function initFactoryReset(){
+  // Auto-export first
+  exportData();
+  // Small delay to let download start, then show dialog
+  setTimeout(()=>{
+    document.getElementById("factoryInput").value="";
+    document.getElementById("factoryConfirmBtn").style.opacity="0.3";
+    document.getElementById("factoryConfirmBtn").style.pointerEvents="none";
+    closeOv("ovSettings");
+    document.getElementById("ovFactory").classList.add("on");
+  }, 400);
+}
+
+function checkFactoryInput(val){
+  const match=val.trim().toUpperCase()==="RESET ALL";
+  const btn=document.getElementById("factoryConfirmBtn");
+  btn.style.opacity=match?"1":"0.3";
+  btn.style.pointerEvents=match?"all":"none";
+}
+
+function executeFactoryReset(){
+  // Wipe everything — full factory reset
+  localStorage.removeItem("cm5");
+  S=JSON.parse(JSON.stringify(DS));
+  save();
+  closeOv("ovFactory");
+  setTheme("red");
+  setPanel(0);
+  // Re-render everything fresh
+  renderP(0);
+  document.getElementById("factoryInput").value="";
+}
+
+function init(){
+  load();setTheme(S.theme||"red");
+  if(!S.selectedWeek)S.selectedWeek=getCurWk();
+  setPanel(S.panel||0);updInfo();chkResets();
+  setInterval(()=>{updInfo();chkResets();},1000);
+}
+init();
+</script>
+<!-- FACTORY RESET OVERLAY -->
+<div class="ov" id="ovFactory">
+  <div class="ocard" style="max-width:340px">
+    <div class="oicon">&#9888;&#65039;</div>
+    <div class="otitle" style="font-size:20px">Factory Reset</div>
+    <div class="obody" style="margin-bottom:12px">
+      Your save file has been downloaded as a backup.<br><br>
+      This will delete <strong>everything</strong> — all challenges, progress, settings, stats.<br><br>
+      Type <strong style="color:var(--a2);letter-spacing:0.1em">RESET ALL</strong> to confirm.
+    </div>
+    <input type="text" id="factoryInput"
+      style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:16px;padding:8px 10px;text-align:center;letter-spacing:0.15em;text-transform:uppercase;outline:none;margin-bottom:16px"
+      placeholder="type RESET ALL"
+      oninput="checkFactoryInput(this.value)">
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button class="obtn sec" onclick="closeOv('ovFactory');document.getElementById('factoryInput').value=''">Cancel</button>
+      <button class="obtn" id="factoryConfirmBtn" style="opacity:0.3;pointer-events:none" onclick="executeFactoryReset()">Reset Everything</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
