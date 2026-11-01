@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Challenge Memoria">
 <meta name="theme-color" content="#12151d">
-<title>Challenge Memoria · Apex v0.15</title>
+<title>Challenge Memoria · Apex v0.15.1</title>
 <style>
 /* ==========================================================================
    Shell tokens, from Pandora Lunar's style.css (commit 739a743 and later).
@@ -205,6 +205,8 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
 .rail-icons button:hover{border-color:var(--line);color:var(--text)}
 .rail-icons button.active{color:var(--accent-hi);border-color:var(--accent)}
 .rail-icons .spacer{margin-left:auto}
+.rail-ver{padding:0 12px 8px;font-family:var(--font-mono);font-size:9.5px;line-height:1.4;color:var(--text-faint)}
+.rail-ver #app-build{display:block}
 
 /* ---- pane ---- */
 .pane{flex:1;min-width:0;padding:0 0 80px}
@@ -442,6 +444,8 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
   .rail.collapsed .rs-time{font-size:10px;text-align:center}
   .rail.collapsed .rail-icons{flex-direction:column;padding:6px 4px}
   .rail.collapsed .rail-icons .spacer{margin-left:0}
+  .rail.collapsed .rail-ver{padding:0 2px 8px;text-align:center;font-size:8.5px}
+  .rail.collapsed .rail-ver #app-build{display:none}
 }
 
 /* ---- drawer ----
@@ -522,6 +526,13 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
         <button id="instructions-toggle-btn" title="How this works" onclick="toggleInstructions()">?</button>
         <button class="spacer" id="ico-collapse" title="Collapse the rail" onclick="toggleRail()">&lsaquo;</button>
       </div>
+      <!-- Version: MAJOR.MINOR.PATCH, the same rules as the HSC Ops Hub and Tales of Milestones.
+           Minor = something new to record or a new area; patch = fixes and conveniences.
+           Bump before committing, here and in <title>, and put it in the commit subject.
+           Caps: PATCH stops at 9, so a patch after x.y.9 is x.(y+1).0.
+           MINOR stops at 99, so the bump after x.99.z is (x+1).0.0.
+           The commit and the update time come from version.json, which the publish step writes. -->
+      <div class="rail-ver"><span id="app-version" data-version="0.15.1">v0.15.1</span><span id="app-build"></span></div>
     </div>
   </nav>
 
@@ -1753,6 +1764,22 @@ function setMobileRailOpen(open){
   document.body.classList.toggle("mobile-menu-open",open);
 }
 function toggleMobileRail(){setMobileRailOpen(!document.getElementById("rail").classList.contains("mobile-open"));}
+// The commit and the update time under the version. The publish step writes version.json as
+// {"v": <Game-Challenge-Tracker commit>, "t": <publish time, UTC ISO>}. Without it the line
+// says "local dev".
+async function showBuild(){
+  const el=document.getElementById("app-build");
+  let v="",t="";
+  try{
+    const res=await fetch("version.json",{cache:"no-store"});
+    if(res.ok)({v,t}=await res.json());
+  }catch(e){}
+  if(!v){el.textContent="local dev";return;}
+  const d=t?new Date(t):null;
+  const when=d&&!isNaN(d)?` · ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} UTC`:"";
+  el.textContent=v.slice(0,7)+when;
+  el.title="Last updated";
+}
 // The rail and the pane top pin below the site bar, which wraps to two lines on a narrow screen.
 function measureShell(){
   const b=document.getElementById("sitebar");
@@ -2230,7 +2257,7 @@ function executeFactoryReset(){
 function init(){
   load();setTheme(S.theme||"poetic");
   if(!S.selectedWeek)S.selectedWeek=getCurWk();
-  buildRail();buildFootDots();applyRailCollapsed();measureShell();mountVuePanels();
+  buildRail();buildFootDots();applyRailCollapsed();measureShell();mountVuePanels();showBuild();
   if(document.fonts)document.fonts.ready.then(measureShell);
   setPanel(S.panel||0);updInfo();chkResets();
   setInterval(()=>{updInfo();chkResets();footTick();},1000);
