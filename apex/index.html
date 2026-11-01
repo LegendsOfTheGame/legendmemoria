@@ -2,74 +2,256 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Challenge Memoria">
-<meta name="theme-color" content="#08080f">
-<title>Challenge Memoria · Apex v0.14</title>
+<meta name="theme-color" content="#12151d">
+<title>Challenge Memoria · Apex v0.15</title>
 <style>
+/* ==========================================================================
+   Shell tokens, from Pandora Lunar's style.css (commit 739a743 and later).
+   Poetic is :root itself; Midnight and Daylight redefine the same names.
+   Keep these in step with Pandora Lunar until both pages share one stylesheet.
+   ========================================================================== */
 :root{
-  --bg:#08080f;--bg2:#0f0f1a;--bg3:#161625;
-  --card:rgba(255,255,255,0.04);--border:rgba(255,255,255,0.08);
-  --text:#e8eaf0;--text2:#8892a4;--text3:#4a5568;
-  --a:#cc2200;--a2:#ff3311;--a-glow:rgba(204,34,0,0.3);
-  --b:#1a4acc;--b2:#4477ff;--b-glow:rgba(26,74,204,0.3);
-  --complete:#22c55e;--complete-g:rgba(34,197,94,0.2);
-  --syn:rgba(255,200,0,0.12);--syn-b:rgba(255,200,0,0.45);
-  --star:#ffc800;
+  --ink:#12151d;
+  --panel:#1a2029;
+  --panel2:#20283382;
+  --line:#2d3646;
+  --line-soft:#232b38;
+  --text:#e8e3d3;
+  --text-dim:#8d94a3;
+  --text-faint:#5c6474;
+  --gold:#c9a668;
+  --gold-dim:#8a7346;
+  --teal:#4fb3a0;
+  --teal-dim:#356e63;
+  --rose:#c07a7a;
+  --sage:#8fb583;
+  --font-display:Georgia,'Times New Roman',serif;
+  --font-body:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --font-mono:ui-monospace,'SF Mono',Consolas,'Courier New',monospace;
+  /* The themes carry a shape as well as a palette. */
+  --r:5px;--r-lg:8px;
+  /* body carries this zoom. A vh resolves against the unzoomed viewport and is
+     then scaled up, so every vh on this page is divided by --zoom. */
+  --zoom:1.3;
 }
-[data-theme="gold"]{--a:#b8860b;--a2:#e8a820;--a-glow:rgba(184,134,11,0.3);--b:#5a6070;--b2:#9ca3af;}
-[data-theme="white"]{--a:#aaaaaa;--a2:#ffffff;--a-glow:rgba(255,255,255,0.15);--b:#222233;--b2:#7777aa;}
+/* Midnight mirrors Tales of Milestones' Classic (ImGui) window: monochrome, square. */
+:root[data-theme="midnight"]{
+  --ink:#0b0b0d;
+  --panel:#16161a;
+  --panel2:#1c1c2182;
+  --line:#33333a;
+  --line-soft:#232329;
+  --text:#ececef;
+  --text-dim:#9c9ca4;
+  --text-faint:#6b6b74;
+  --gold:#a83232;
+  --gold-dim:#6e2222;
+  --teal:#5a86ad;
+  --teal-dim:#3a5670;
+  --rose:#b5555a;
+  --sage:#6f9e6a;
+  --r:3px;--r-lg:3px;
+}
+/* Daylight mirrors the plugin's Native (KamiToolKit) window: slate, rounded. */
+:root[data-theme="daylight"]{
+  color-scheme:dark;
+  --ink:#4b5157;
+  --panel:#5c626a;
+  --panel2:#545a6182;
+  --line:#3f454c;
+  --line-soft:#525860;
+  --text:#f3f5f6;
+  --text-dim:#d0d5d9;
+  --text-faint:#a8aeb4;
+  --gold:#dcc084;
+  --gold-dim:#a28a58;
+  --teal:#7ab8c7;
+  --teal-dim:#4d7f8c;
+  --rose:#d99292;
+  --sage:#8ed08e;
+  --r:7px;--r-lg:9px;
+}
+/* Apex identity: the accent and the fonts are the per-game part of the shell.
+   :root[data-theme] has the same weight as the theme blocks and comes later,
+   so it wins in every theme. */
+:root,:root[data-theme]{
+  --accent:#d6401f;--accent-hi:#ff5a36;--accent-glow:rgba(214,64,31,0.3);
+  --font-display:"Barlow Condensed",sans-serif;
+  --font-mono:"Share Tech Mono",ui-monospace,Consolas,monospace;
+}
+/* The challenge-card styles further down came from the old Apex page. These
+   names map them onto the shell tokens, so the cards follow the theme. */
+:root,:root[data-theme]{
+  --bg:var(--ink);--bg2:var(--panel);--bg3:var(--line-soft);
+  --card:var(--panel);--border:var(--line);
+  --text2:var(--text-dim);--text3:var(--text-faint);
+  --a:var(--accent);--a2:var(--accent-hi);--a-glow:var(--accent-glow);
+  --b:var(--teal-dim);--b2:var(--teal);--b-glow:transparent;
+  --complete:var(--sage);--complete-g:rgba(143,181,131,0.3);
+  --syn:rgba(255,200,0,0.10);--syn-b:rgba(255,200,0,0.45);--star:#ffc800;
+  --track:rgba(255,255,255,0.05);
+}
+/* Daylight speaks the native window's language instead of Apex red: warm tan
+   for what is selected or filled, gold for figures, green for what is done.
+   Red and translucent yellow turn muddy on mid slate. */
+:root[data-theme="daylight"]{
+  --accent:#a28a58;--accent-hi:#f0d79a;--accent-glow:rgba(220,192,132,0.25);
+  --syn:var(--panel);--syn-b:#dcc084;
+  --track:rgba(0,0,0,0.18);
+}
 
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;background:var(--bg);}
-body{color:var(--text);font-family:"Barlow",sans-serif;font-size:15px;line-height:1.4;overscroll-behavior:none;}
-.app{max-width:640px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
+html{background:var(--ink);}
+body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-size:14px;line-height:1.4;zoom:var(--zoom);}
 
-/* HEADER */
-.hdr{position:sticky;top:0;z-index:100;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 14px 8px;}
-.hdr-top{display:flex;align-items:center;justify-content:space-between;}
-.hdr-title{font-family:"Barlow Condensed",sans-serif;font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;line-height:1;}
-.hdr-title span{color:var(--a2);}
-.hdr-sub{font-family:"Share Tech Mono",monospace;font-size:10px;color:var(--text2);letter-spacing:0.1em;margin-top:2px;}
-.hdr-right{display:flex;gap:8px;align-items:center;}
-.icon-btn{width:30px;height:30px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;transition:all 0.15s;flex-shrink:0;}
-.icon-btn:active{transform:scale(0.86);}
-.icon-btn:hover{color:var(--a2);border-color:var(--a2);}
-.theme-picker{display:flex;gap:5px;}
-.tbtn{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:border-color 0.2s,transform 0.15s;flex-shrink:0;object-fit:cover;}
-.tbtn:active{transform:scale(0.86);}
-.tbtn.active{border-color:var(--text);}
+/* ==========================================================================
+   Shell: site bar, pinned rail, pane. Only the pane scrolls.
+   Nothing leaves the DOM. Every panel is drawn as before; the rail and the
+   frame row only toggle a class.
+   ========================================================================== */
+.sitebar{
+  position:sticky;top:0;z-index:50;
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:8px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+}
+.sitebar .domain{font-size:12px;color:var(--text-faint)}
+.sitebar .domain b{font-family:var(--font-display);font-weight:800;font-size:17px;letter-spacing:.06em;text-transform:uppercase;color:var(--text)}
+.sitebar .domain b span{color:var(--accent-hi)}
+.sitebar nav{display:flex;gap:4px;flex-wrap:wrap}
+.sitebar nav a{color:var(--text-dim);text-decoration:none;font-size:12.5px;padding:4px 10px;border-radius:5px}
+.sitebar nav a:hover{color:var(--text)}
+.sitebar nav a.on{background:var(--line-soft);color:var(--accent-hi)}
+.sitebar .who{margin-left:auto}
+.sitebar select{
+  font:12.5px var(--font-body);background:var(--ink);color:var(--text);
+  border:1px solid var(--line);border-radius:5px;padding:4px 8px;
+}
+.sitebar select:focus-visible{outline:2px solid var(--teal)}
+.mobile-menu-toggle{
+  display:none;align-items:center;justify-content:center;
+  width:40px;height:40px;padding:0;border:1px solid var(--line);
+  border-radius:5px;background:transparent;color:var(--text);
+  cursor:pointer;font:20px/1 var(--font-body);
+}
+.mobile-menu-toggle:hover{border-color:var(--accent);color:var(--accent-hi)}
+.rail-backdrop{display:none}
 
-/* INFO BAR */
-.info-bar{display:flex;gap:6px;padding:6px 14px;background:var(--bg2);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;}
-.info-bar::-webkit-scrollbar{display:none;}
-.chip{flex-shrink:0;padding:5px 10px;background:var(--card);border:1px solid var(--border);border-radius:3px;}
+.shell{display:flex;align-items:flex-start;min-height:calc(100vh / var(--zoom) - var(--sitebar-h,0px))}
+
+.rail{
+  position:sticky;top:var(--sitebar-h,0px);width:224px;flex:0 0 224px;
+  height:calc(100vh / var(--zoom) - var(--sitebar-h,0px));
+  background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+  transition:width .12s,flex-basis .12s;z-index:40;
+}
+.rail-scroll{flex:1 1 auto;overflow-y:auto;min-height:0}
+
+/* ---- season block ---- */
+.season{padding:14px 16px 12px;border-bottom:1px solid var(--line-soft);margin-bottom:4px}
+.season .s-name{font-family:var(--font-display);font-size:21px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;line-height:1.05;color:var(--accent-hi)}
+.season .s-sub{font-size:11px;color:var(--text-faint);margin-top:3px;text-transform:uppercase;letter-spacing:.08em}
+.season .s-wk{font-family:var(--font-mono);font-size:13px;color:var(--text);margin-top:8px;letter-spacing:.05em}
+
+/* ---- areas ---- */
+.areas{display:flex;flex-direction:column;gap:2px;padding:6px 8px}
+.areas .area{
+  display:grid;grid-template-columns:1fr auto;gap:5px 8px;align-items:center;
+  padding:8px 10px;border:none;border-radius:5px;background:transparent;cursor:pointer;
+  font:13px var(--font-body);color:var(--text-dim);text-align:left;
+}
+.areas .area:hover{background:var(--line-soft);color:var(--text)}
+.areas .area.on{background:var(--line-soft);color:var(--text)}
+.areas .area.on .lbl{color:var(--accent-hi)}
+.areas .area:focus-visible{outline:2px solid var(--teal)}
+.areas .pct{font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)}
+.areas .meter{grid-column:1/-1;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+.areas .meter i{display:block;height:100%;width:0;background:var(--teal)}
+
+/* ---- pinned rail footer ----
+   One countdown at a time, changing every 5 seconds. All keep counting while
+   hidden. An urgent countdown holds the slot until it is no longer urgent. */
+.rail-foot{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel)}
+.foot-slot{position:relative;min-height:72px;border-bottom:1px solid var(--line-soft)}
+.rail-foot .foot-item{display:none}
+.rail-foot .foot-item.on{display:block}
+.reset-bar{background:var(--ink);padding:9px 12px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:72px}
+.reset-bar .rs-label{font-size:9.5px;line-height:1.3;color:var(--text-faint);text-transform:uppercase;letter-spacing:.6px}
+.reset-bar .rs-time{font-family:var(--font-mono);font-size:15px;color:var(--text)}
+.reset-bar .rs-what{font-size:9.5px;line-height:1.35;color:var(--text-faint)}
 @keyframes hardBlink{0%,49%{opacity:1;}50%,100%{opacity:0.15;}}
 @keyframes softPulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
-.chip.urgent{border-color:var(--a);box-shadow:0 0 8px var(--a-glow);}
-.chip.urgent .chip-val{color:var(--a2);}
-.chip.urgent .chip-lbl{color:var(--a);}
-.chip.chip-pulse{animation:softPulse 1s infinite;}
-.chip.chip-blink{animation:hardBlink 1s infinite;}
-.chip-lbl{font-family:"Share Tech Mono",monospace;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;}
-.chip-val{font-family:"Barlow Condensed",sans-serif;font-size:15px;font-weight:700;color:var(--a2);}
-.chip-val.b{color:var(--b2);}
+.reset-bar.urgent{box-shadow:inset 2px 0 0 var(--accent)}
+.reset-bar.urgent .rs-label{color:var(--accent)}
+.reset-bar.urgent .rs-time{color:var(--accent-hi)}
+.reset-bar.chip-pulse .rs-time{animation:softPulse 1s infinite}
+.reset-bar.chip-blink .rs-time{animation:hardBlink 1s infinite}
 
-/* PANEL NAV */
-.pnav{display:flex;align-items:center;background:var(--bg);border-bottom:1px solid var(--border);position:sticky;top:76px;z-index:90;height:42px;}
-.parr{width:38px;height:42px;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:16px;cursor:pointer;transition:color 0.15s;user-select:none;}
-.parr:active{color:var(--a2);}
-.parr.off{opacity:0.18;pointer-events:none;}
-.plbl{flex:1;text-align:center;font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--a2);}
-.pdots{display:flex;gap:5px;align-items:center;padding:0 10px;}
-.pdot{width:6px;height:6px;border-radius:50%;background:var(--text3);transition:background 0.2s,transform 0.2s;}
-.pdot.on{background:var(--a2);transform:scale(1.3);}
+.foot-dots{display:flex;justify-content:center;gap:5px;padding:5px 0 4px;border-bottom:1px solid var(--line-soft)}
+.foot-dots button{width:6px;height:6px;padding:0;border-radius:50%;cursor:pointer;background:var(--line);border:none}
+.foot-dots button:hover{background:var(--text-faint)}
+.foot-dots button.on{background:var(--accent)}
 
-/* PANELS */
-.panel{display:none;padding:10px 12px 90px;}
-.panel.on{display:block;}
+.rail-icons{display:flex;align-items:center;gap:2px;padding:7px 8px}
+.rail-icons button{
+  background:transparent;border:1px solid transparent;color:var(--text-faint);
+  width:30px;height:28px;border-radius:5px;cursor:pointer;font-size:13px;line-height:1;
+  font-family:var(--font-body);
+}
+.rail-icons button:hover{border-color:var(--line);color:var(--text)}
+.rail-icons button.active{color:var(--accent-hi);border-color:var(--accent)}
+.rail-icons .spacer{margin-left:auto}
+
+/* ---- pane ---- */
+.pane{flex:1;min-width:0;padding:0 0 80px}
+.pane-top{
+  position:sticky;top:var(--sitebar-h,0px);z-index:20;background:var(--ink);
+  border-bottom:1px solid var(--line);padding:12px 26px 0;
+}
+.pane-title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding-bottom:9px}
+.pane-title h1{font-family:var(--font-display);font-size:25px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;line-height:1;color:var(--text)}
+.pane-title span{font-size:12px;color:var(--text-faint)}
+.frame-row{display:flex;gap:4px;flex-wrap:wrap}
+.frame-row:empty{display:none}
+.frame-btn{
+  border:none;background:transparent;cursor:pointer;font:13px var(--font-body);color:var(--text-dim);
+  padding:6px 12px 8px;border-bottom:2px solid transparent;border-radius:5px 5px 0 0;
+}
+.frame-btn:hover{color:var(--text)}
+.frame-btn.on{color:var(--text);border-bottom-color:var(--accent)}
+.frame-btn:focus-visible{outline:2px solid var(--teal)}
+.frame-btn .frame-n{font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)}
+.frame-btn.done .frame-n{color:var(--sage)}
+:root[data-theme="midnight"] .frame-btn{border-radius:3px 3px 0 0}
+:root[data-theme="midnight"] .frame-btn.on{background:var(--accent);color:#fff}
+:root[data-theme="midnight"] .frame-btn.on .frame-n{color:#fff}
+:root[data-theme="daylight"] .frame-btn{border-radius:9px 9px 0 0}
+:root[data-theme="daylight"] .frame-btn.on{background:var(--gold-dim);color:#fff;border-bottom-color:var(--accent)}
+:root[data-theme="daylight"] .frame-btn.on .frame-n{color:#fff}
+.pane-body{padding:18px 26px 0}
+
+/* ---- areas and frames ----
+   An area's panel and a frame are hidden by class only, so changing either
+   re-renders what is shown but removes nothing. */
+.panel{display:none}
+.panel.on{display:block}
+[data-frame]{display:none}
+[data-frame].frame-on{display:block}
+
+.instructions-panel{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:18px 22px;margin:0 0 18px;max-width:760px;line-height:1.55;
+}
+.instructions-panel h2{font-family:var(--font-display);font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.instructions-panel h3{font-family:var(--font-display);font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-hi);margin:14px 0 4px}
+.instructions-panel p{font-size:13px;color:var(--text-dim);margin-bottom:6px}
+.instructions-panel strong{color:var(--text)}
+.save-note{display:flex;align-items:center;gap:7px;margin-top:28px;font-size:11px;color:var(--text-faint)}
+.save-note .dot{width:7px;height:7px;border-radius:50%;background:var(--sage)}
 
 /* PROGRESS HEADER */
 .phdr{display:flex;align-items:center;justify-content:space-between;padding:8px 2px 6px;}
@@ -210,67 +392,227 @@ body{color:var(--text);font-family:"Barlow",sans-serif;font-size:15px;line-heigh
 .stat-lbl{font-size:13px;color:var(--text2);}
 .stat-val{font-family:"Share Tech Mono",monospace;font-size:14px;color:var(--a2);font-weight:700;}
 .stat-section{font-family:"Barlow Condensed",sans-serif;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin:14px 0 4px;}
+
+/* ==========================================================================
+   Shell adjustments to the card styles above
+   ========================================================================== */
+.cc,.dc,.legend-rec,.dreset,.add-challenge-btn,.s-btn,.b-preview,.b-select,.b-input,.pinput,.dsel,.s-sel{border-radius:var(--r)}
+.ocard,.builder-card,.settings-card,.stats-card{border-radius:var(--r-lg)}
+.btrack{background:var(--track)}
+.builder-card{max-height:calc(92vh / var(--zoom))}
+.settings-card{max-height:calc(88vh / var(--zoom))}
+.stats-card{max-height:calc(85vh / var(--zoom))}
+
+/* Cards use the width of the pane: as many columns as fit, each at least 340px. */
+#wkList,#dList,.wgrp,.spotlight-section{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));
+  gap:6px;align-items:start;
+}
+.wgrp{margin-bottom:16px}
+.cc,.dc,.legend-rec{margin-bottom:0}
+.wghdr,.spotlight-section-hdr,.add-challenge-btn,.empty-week,.spot-mains,.t5empty,#wkList>div:not(.cc){grid-column:1/-1}
+.spot-mains{display:flex;gap:6px;flex-wrap:wrap}
+.t5lbl{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);letter-spacing:.08em;margin:0 0 3px 2px}
+.t5empty{text-align:center;padding:30px 20px;color:var(--text-faint);font-family:var(--font-mono);font-size:12px}
+.phdr{padding-top:0}
+#dList{margin-top:2px}
+.dreset{max-width:340px}
+
+/* Settings is an area of its own now; its form keeps a readable width. */
+#pSettings [data-frame]{max-width:460px}
+#pSettings .s-row{border-bottom-color:var(--line-soft)}
+
+/* ---- collapsed rail (wide screens only; the drawer is always full width) ---- */
+@media (min-width:821px) and (orientation:landscape){
+  .rail.collapsed{width:56px;flex-basis:56px}
+  .rail.collapsed .season .s-name,
+  .rail.collapsed .season .s-sub,
+  .rail.collapsed .areas .lbl,
+  .rail.collapsed .areas .pct,
+  .rail.collapsed .rs-label,
+  .rail.collapsed .rs-what,
+  .rail.collapsed .foot-dots{display:none}
+  .rail.collapsed .season{padding:10px 2px;text-align:center}
+  .rail.collapsed .season .s-wk{font-size:9px;margin-top:0;letter-spacing:0}
+  .rail.collapsed .areas{padding:6px 4px}
+  .rail.collapsed .areas .area{grid-template-columns:1fr;justify-items:center;padding:8px 0}
+  .rail.collapsed .areas .area::before{content:attr(data-short);font-size:14px}
+  .rail.collapsed .foot-slot,.rail.collapsed .reset-bar{min-height:0}
+  .rail.collapsed .reset-bar{align-items:center;padding:8px 2px}
+  .rail.collapsed .rs-time{font-size:10px;text-align:center}
+  .rail.collapsed .rail-icons{flex-direction:column;padding:6px 4px}
+  .rail.collapsed .rail-icons .spacer{margin-left:0}
+}
+
+/* ---- drawer ----
+   At narrow widths or in portrait, the rail becomes a drawer so the pane keeps
+   the full width, and the page drops the zoom. */
+@media (max-width:820px),(orientation:portrait){
+  :root{--zoom:1}
+  .sitebar{padding:8px 12px;gap:8px 12px}
+  .mobile-menu-toggle{display:inline-flex}
+  .sitebar select{min-height:40px}
+  .rail{
+    position:fixed;top:var(--sitebar-h,0px);bottom:0;left:0;
+    width:min(300px,calc(100vw - 52px));height:auto;flex:0 0 auto;z-index:60;
+    box-shadow:4px 0 18px rgba(0,0,0,.35);
+    transform:translateX(-101%);visibility:hidden;pointer-events:none;
+    transition:transform .18s ease;
+  }
+  .rail.mobile-open{transform:translateX(0);visibility:visible;pointer-events:auto}
+  .rail #ico-collapse{display:none}
+  .rail-backdrop:not([hidden]){
+    display:block;position:fixed;top:var(--sitebar-h,0px);right:0;bottom:0;left:0;
+    z-index:55;border:0;padding:0;background:rgba(5,7,12,.62);cursor:pointer;
+  }
+  body.mobile-menu-open{overflow:hidden}
+  .areas .area{min-height:44px}
+  .pane-top{padding:10px 14px 0}
+  .pane-body{padding:14px 14px 0}
+  .frame-btn{min-height:40px;padding-left:9px;padding-right:9px}
+}
 </style>
 </head>
 <body>
-<div class="app">
-  <div class="hdr">
-    <div class="hdr-top">
-      <div>
-        <div class="hdr-title">Challenge <span>Memoria</span></div>
-        <div class="hdr-sub">APEX LEGENDS &middot; SEASON 30 MARKED</div>
+
+<!-- ================= site bar ================= -->
+<header class="sitebar" id="sitebar">
+  <button type="button" class="mobile-menu-toggle" id="mobile-menu-toggle"
+    aria-label="Open navigation" aria-expanded="false" aria-controls="rail"
+    onclick="toggleMobileRail()">&#9776;</button>
+  <span class="domain"><b>Challenge <span>Memoria</span></b> &middot; Apex Legends</span>
+  <nav aria-label="Site"><a href="../" title="legendmemoria.org">Studio</a><a href="./" class="on" title="This page">Apex Legends</a></nav>
+  <div class="who">
+    <select id="theme-sel" aria-label="Theme" onchange="setTheme(this.value)">
+      <option value="poetic">Poetic</option><option value="midnight">Midnight</option><option value="daylight">Daylight</option>
+    </select>
+  </div>
+</header>
+<button type="button" class="rail-backdrop" id="rail-backdrop"
+  aria-label="Close navigation" onclick="setMobileRailOpen(false)" hidden></button>
+
+<div class="shell">
+
+  <!-- ================= rail ================= -->
+  <nav class="rail" id="rail">
+    <div class="rail-scroll">
+      <div class="season">
+        <div class="s-name" id="hdrSub">Season</div>
+        <div class="s-sub">Apex Legends</div>
+        <div class="s-wk" id="iSeason">--</div>
       </div>
-      <div class="hdr-right">
-        <div class="theme-picker">
-          <img class="tbtn" data-t="red"   src="theme-red.png"   onclick="setTheme('red')"   title="Red / Blue"   alt="Red theme">
-          <img class="tbtn"        data-t="gold"  src="theme-gold.png"  onclick="setTheme('gold')"  title="Gold / Silver" alt="Gold theme">
-          <img class="tbtn"        data-t="white" src="theme-white.png" onclick="setTheme('white')" title="White / Black" alt="White theme">
+      <nav class="areas" id="rail-nav" aria-label="Areas"></nav>
+    </div>
+
+    <div class="rail-foot">
+      <div class="foot-slot" id="foot-slot">
+        <div class="foot-item on" data-name="Weekly reset">
+          <div class="reset-bar"><span class="rs-label">Weekly reset</span><span class="rs-time" id="iWeekly">--</span><span class="rs-what" id="iWeeklyWhat"></span></div>
         </div>
-        <div class="icon-btn" onclick="showSettings()" title="Settings">&#9881;&#65039;</div>
+        <div class="foot-item" data-name="Daily reset">
+          <div class="reset-bar"><span class="rs-label">Daily reset</span><span class="rs-time" id="iDaily">--</span><span class="rs-what" id="iDailyWhat"></span></div>
+        </div>
+        <div class="foot-item" data-name="Season ends">
+          <div class="reset-bar"><span class="rs-label">Season ends</span><span class="rs-time" id="iEnd">--</span><span class="rs-what" id="iEndWhat"></span></div>
+        </div>
+      </div>
+      <div class="foot-dots" id="foot-dots"></div>
+      <div class="rail-icons">
+        <button id="ico-tools" title="Backup and restore" onclick="openData()">&#11123;</button>
+        <button id="instructions-toggle-btn" title="How this works" onclick="toggleInstructions()">?</button>
+        <button class="spacer" id="ico-collapse" title="Collapse the rail" onclick="toggleRail()">&lsaquo;</button>
       </div>
     </div>
-  </div>
+  </nav>
 
-  <div class="info-bar">
-    <div class="chip"><div class="chip-lbl">Season</div><div class="chip-val" id="iSeason">S30</div></div>
-    <div class="chip"><div class="chip-lbl">Weekly Reset</div><div class="chip-val b" id="iWeekly">--:--</div></div>
-    <div class="chip"><div class="chip-lbl">Daily Reset</div><div class="chip-val b" id="iDaily">--:--</div></div>
-    <div class="chip"><div class="chip-lbl">Season Ends</div><div class="chip-val" id="iEnd">--d</div></div>
-  </div>
+  <!-- ================= pane ================= -->
+  <main class="pane">
+    <div class="pane-top" id="pane-top">
+      <div class="pane-title"><h1 id="pLbl">Spotlight</h1><span id="pSub"></span></div>
+      <div class="frame-row" id="frame-row" role="tablist"></div>
+    </div>
 
-  <div class="pnav">
-    <div class="parr" id="pLeft"  onclick="shiftP(-1)">&#9664;</div>
-    <div class="plbl" id="pLbl">Spotlight</div>
-    <div class="pdots" id="pDots">
-      <div class="pdot on"></div><div class="pdot"></div><div class="pdot"></div><div class="pdot"></div><div class="pdot"></div>
-    </div>
-    <div class="parr" id="pRight" onclick="shiftP(1)">&#9654;</div>
-  </div>
+    <div class="pane-body">
 
-  <div class="panel on" id="p0"><div id="spotlightList"></div></div>
-  <div class="panel" id="pLegend">
-    <div id="legendPickerRow" style="display:flex;flex-wrap:nowrap;gap:8px;padding:10px 0 14px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;"></div>
-    <div id="legendChallengeList"></div>
-  </div>
-  <div class="panel"    id="p1">
-    <div class="dreset"><span class="dreset-lbl">Next Daily Reset</span><span class="dreset-val" id="dResetVal">--:--:--</span></div>
-    <div id="dList"></div>
-  </div>
-  <div class="panel"    id="p2">
-    <div class="wsel" id="wSel"></div>
-    <div class="phdr">
-      <div><div class="phdr-title" id="wkTitle">Week 1</div><div class="phdr-sub" id="wkSub">0 / 10</div></div>
-      <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" id="wkRing" cx="25" cy="25" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><div class="rpct" id="wkPct">0%</div></div>
+      <div class="instructions-panel" id="instructions-panel" style="display:none">
+        <h2>How this works</h2>
+        <p>The tracker keeps your data in this browser, on this device. It sends nothing to a server.</p>
+
+        <h3>The rail</h3>
+        <p>The rail is the column on the left. It shows the season, the current week label and six areas. Click an area to open it. The count next to an area shows the completed challenges and the total.</p>
+        <p>Some areas have frames. The frame buttons are in the row at the top of the pane. In Weekly, each frame button is one week of the current split.</p>
+        <p>The rail and the frame buttons stay on the screen. Only the pane scrolls. Click <code>&lsaquo;</code> at the bottom of the rail to make the rail narrow. Click it again to make the rail wide.</p>
+
+        <h3>Week labels</h3>
+        <p>A label such as <strong>S31H1W1</strong> means Season 31, Split 1, week 1.</p>
+
+        <h3>Resets</h3>
+        <p>The bottom of the rail shows one countdown at a time: weekly reset, daily reset and season end. The countdown changes every 5 seconds. Click a dot to show a countdown. A countdown that is near zero stays on the screen.</p>
+        <p>The weekly reset and the season start are on Tuesday at 10:00 Pacific time. That is 18:00 UTC in winter and 17:00 UTC in summer. The daily reset is every day at 03:00 Pacific time. That is 11:00 UTC in winter and 10:00 UTC in summer.</p>
+
+        <h3>Backups</h3>
+        <p>Click the backup icon at the bottom of the rail, or open Settings and then Data. Click <code>Export Save File</code> to save a <code>.json</code> file. Click <code>Import Save File</code> to load a file.</p>
+        <p><strong>WARNING:</strong> If you clear the site data of your browser, the browser erases your challenges. Export a save file first.</p>
+
+        <h3>Themes</h3>
+        <p>The tracker has three themes: Poetic, Midnight and Daylight. Select a theme in the list at the right of the bar at the top of the page.</p>
+      </div>
+
+      <div class="panel on" id="p0"><div id="spotlightList"></div></div>
+      <div class="panel" id="pLegend">
+        <div id="legendPickerRow" style="display:flex;flex-wrap:nowrap;gap:8px;padding:0 0 14px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;"></div>
+        <div id="legendChallengeList"></div>
+      </div>
+      <div class="panel" id="p1">
+        <div class="dreset"><span class="dreset-lbl">Next Daily Reset</span><span class="dreset-val" id="dResetVal">--:--:--</span></div>
+        <div id="dList"></div>
+      </div>
+      <div class="panel" id="p2">
+        <div class="phdr">
+          <div><div class="phdr-title" id="wkTitle">Week 1</div><div class="phdr-sub" id="wkSub">0 / 10</div></div>
+          <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" id="wkRing" cx="25" cy="25" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><div class="rpct" id="wkPct">0%</div></div>
+        </div>
+        <div id="wkList"></div>
+      </div>
+      <div class="panel" id="p3">
+        <div class="phdr">
+          <div><div class="phdr-title" id="allTitle">Part 1</div><div class="phdr-sub" id="allSub">0 / 0</div></div>
+          <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" id="allRing" cx="25" cy="25" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><div class="rpct" id="allPct">0%</div></div>
+        </div>
+        <div id="allList"></div>
+      </div>
+      <div class="panel" id="pSettings">
+        <div data-frame="mains">
+          <div class="s-section">My Mains</div>
+          <div class="s-row"><span class="s-row-label">Assault</span><select class="s-sel" id="mainAssault" onchange="saveMain('Assault',this.value)"></select></div>
+          <div class="s-row"><span class="s-row-label">Recon</span><select class="s-sel" id="mainRecon" onchange="saveMain('Recon',this.value)"></select></div>
+          <div class="s-row"><span class="s-row-label">Skirmisher</span><select class="s-sel" id="mainSkirmisher" onchange="saveMain('Skirmisher',this.value)"></select></div>
+          <div class="s-row"><span class="s-row-label">Support</span><select class="s-sel" id="mainSupport" onchange="saveMain('Support',this.value)"></select></div>
+          <div class="s-row"><span class="s-row-label">Controller</span><select class="s-sel" id="mainController" onchange="saveMain('Controller',this.value)"></select></div>
+
+          <div class="s-section">Daily Challenges</div>
+          <div class="s-row">
+            <span class="s-row-label">Enable Daily Tracking</span>
+            <div class="s-toggle on" id="dailyToggle" onclick="toggleDailyEnabled()"></div>
+          </div>
+        </div>
+        <div data-frame="data">
+          <div class="s-section">Save File</div>
+          <button class="s-btn" onclick="exportData()">&#8599; Export Save File</button>
+          <label class="s-btn" style="cursor:pointer">
+            &#8601; Import Save File
+            <input type="file" accept=".json" style="display:none" onchange="importData(event)">
+          </label>
+          <div class="s-section">Reset</div>
+          <button class="s-btn danger" onclick="confirmClearAll()">&#8635; Clear All Progress</button>
+          <button class="s-btn danger" style="margin-top:10px;border-color:rgba(204,34,0,0.6)" onclick="initFactoryReset()">&#9888; Factory Reset</button>
+        </div>
+      </div>
+
+      <div class="save-note"><span class="dot"></span><span>Saved in this browser &middot; &copy; Legends of the Game</span></div>
     </div>
-    <div id="wkList"></div>
-  </div>
-  <div class="panel"    id="p3">
-    <div class="phdr">
-      <div><div class="phdr-title" id="allTitle">Part 1</div><div class="phdr-sub" id="allSub">0 / 0</div></div>
-      <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" id="allRing" cx="25" cy="25" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><div class="rpct" id="allPct">0%</div></div>
-    </div>
-    <div id="allList"></div>
-  </div>
+  </main>
+
 </div>
 
 <!-- RESET OVERLAY -->
@@ -293,38 +635,6 @@ body{color:var(--text);font-family:"Barlow",sans-serif;font-size:15px;line-heigh
       <button class="obtn sec" onclick="closeOv('ovConfirm')">Cancel</button>
       <button class="obtn" id="ovConfirmBtn">Confirm</button>
     </div>
-  </div>
-</div>
-
-<!-- SETTINGS OVERLAY -->
-<div class="ov" id="ovSettings" onclick="if(event.target===this)closeOv('ovSettings')">
-  <div class="settings-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em">Settings</div>
-      <button class="obtn" style="padding:5px 12px;font-size:13px" onclick="closeOv('ovSettings')">&#10005;</button>
-    </div>
-
-    <div class="s-section">My Mains</div>
-    <div class="s-row"><span class="s-row-label">Assault</span><select class="s-sel" id="mainAssault" onchange="saveMain('Assault',this.value)"></select></div>
-    <div class="s-row"><span class="s-row-label">Recon</span><select class="s-sel" id="mainRecon" onchange="saveMain('Recon',this.value)"></select></div>
-    <div class="s-row"><span class="s-row-label">Skirmisher</span><select class="s-sel" id="mainSkirmisher" onchange="saveMain('Skirmisher',this.value)"></select></div>
-    <div class="s-row"><span class="s-row-label">Support</span><select class="s-sel" id="mainSupport" onchange="saveMain('Support',this.value)"></select></div>
-    <div class="s-row"><span class="s-row-label">Controller</span><select class="s-sel" id="mainController" onchange="saveMain('Controller',this.value)"></select></div>
-
-    <div class="s-section">Daily Challenges</div>
-    <div class="s-row">
-      <span class="s-row-label">Enable Daily Tracking</span>
-      <div class="s-toggle on" id="dailyToggle" onclick="toggleDailyEnabled()"></div>
-    </div>
-
-    <div class="s-section">Data</div>
-    <button class="s-btn" onclick="exportData()">&#8599; Export Save File</button>
-    <label class="s-btn" style="cursor:pointer">
-      &#8601; Import Save File
-      <input type="file" accept=".json" style="display:none" onchange="importData(event)">
-    </label>
-    <button class="s-btn danger" onclick="confirmClearAll()">&#8635; Clear All Progress</button>
-    <button class="s-btn danger" style="margin-top:10px;border-color:rgba(204,34,0,0.6)" onclick="initFactoryReset()">&#9888; Factory Reset</button>
   </div>
 </div>
 
@@ -600,11 +910,37 @@ body{color:var(--text);font-family:"Barlow",sans-serif;font-size:15px;line-heigh
 /* ================================================================
    CONSTANTS
 ================================================================ */
-// Apex resets are pinned to UTC, so local times shift with DST:
-//   weekly 17:00 UTC = 1pm EDT / 12pm EST, daily 10:00 UTC = 6am EDT / 5am EST.
-const SEA_START   = new Date("2026-08-04T17:00:00Z"); // Season 30 (Marked)
-const SEA_WKS     = 13; // S30: Split 1 = 6 weeks, Split 2 = 7 weeks (in-game timer, 2026-09-27)
-const DAY_RST_UTC = 10;
+// Apex weekly and season resets follow 10:00 Pacific, so they move in UTC with US DST:
+//   17:00 UTC while PDT is in effect, 18:00 UTC while PST is in effect.
+// Week arithmetic below is fixed 7-day steps from `start`, so a season that crosses a DST
+// change (S32: 14 March 2027) will be an hour off after it until this is handled.
+// The tracker uses the last season whose start has passed, and archives the previous
+// season's weekly challenges when it switches. Add the next season here when it is announced.
+//   p1Wks: weeks in Part 1 (the game's Split 1). Weeks after that are Part 2.
+const SEASONS = [
+  {num:30,name:"Marked",start:"2026-08-04T17:00:00Z",wks:13,p1Wks:6}, // in-game timer, 2026-09-27
+  {num:31,name:"Cipher",start:"2026-11-03T18:00:00Z",wks:14,p1Wks:6}, // start confirmed; wks and p1Wks are pre-season guesses until the launch screenshot
+];
+let SEA_NUM,SEA_NAME,SEA_START,SEA_END,SEA_WKS,P1_WKS;
+function pickSeason(){
+  const now=new Date();
+  let i=0;
+  SEASONS.forEach((s,j)=>{if(new Date(s.start)<=now)i=j;});
+  const s=SEASONS[i],nx=SEASONS[i+1];
+  SEA_NUM=s.num;SEA_NAME=s.name;SEA_START=new Date(s.start);SEA_WKS=s.wks;P1_WKS=s.p1Wks;
+  // The next season's start is the exact end; the week count is only an estimate.
+  SEA_END=nx?new Date(nx.start):new Date(SEA_START.getTime()+SEA_WKS*7*24*3600*1000);
+}
+pickSeason();
+// The daily reset is 03:00 Pacific: 10:00 UTC in summer (confirmed), 11:00 UTC in winter
+// (in-game "Refreshes: 15h 1m" at 19:58 UTC on 1 November 2026).
+const DAY_RST_PT = 3;
+// Hours that UTC is ahead of Pacific time at instant d: 7 while PDT is in effect, 8 while PST is.
+function ptOffsetH(d){
+  const pt=new Date(d.toLocaleString("en-US",{timeZone:"America/Los_Angeles"}));
+  const utc=new Date(d.toLocaleString("en-US",{timeZone:"UTC"}));
+  return Math.round((utc-pt)/3600000);
+}
 
 const CLASSES = ["Assault","Recon","Skirmisher","Support","Controller"];
 const WEAPONS = ["Assault Rifles","Submachine Guns","Light Machine Guns","Marksman Weapons","Sniper Rifles","Pistols","Shotguns","Ordnances","Akimbos","Red-Tier Weapons"];
@@ -695,8 +1031,9 @@ function fmtN(n){if(!n&&n!==0)return"X";const v=parseInt(n)||0;return v.toLocale
    STATE
 ================================================================ */
 const DS={
-  theme:"red",panel:0,selectedWeek:1,dailyEnabled:true,
+  theme:"poetic",panel:0,selectedWeek:1,dailyEnabled:true,
   mains:{Assault:"Fuse",Recon:"Sparrow",Skirmisher:"Octane",Support:"Mirage",Controller:"Caustic"},
+  season:null,archive:{},
   weeks:{},
   progress:{},
   daily:{
@@ -725,22 +1062,47 @@ function load(){
       if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));
       if(!S.weeks)S.weeks={};
       if(!S.mains)S.mains={...DS.mains};
-    }
+      S.season=p.season||30; // saves from before seasons were recorded are Season 30
+    }else S.season=SEA_NUM;
   }catch(e){}
+  archiveSeason();
 }
-function save(){localStorage.setItem("cm5",JSON.stringify(S));}
+// weekLabels is written for people reading an exported file; the code keys weeks by number.
+function save(){S.weekLabels=Object.fromEntries(Object.keys(S.weeks||{}).map(w=>[w,wkLabel(+w)]));localStorage.setItem("cm5",JSON.stringify(S));}
+// Moves the weekly challenges of an earlier season into S.archive[season] and starts the
+// current season empty. Dailies, mains, theme and stats carry over. Nothing is deleted.
+function archiveSeason(){
+  if(!S.archive)S.archive={};
+  if(S.season>=SEA_NUM)return false; // never step back a season (a device clock set wrong)
+  if(Object.keys(S.weeks||{}).length||Object.keys(S.progress||{}).length){
+    let k=String(S.season);while(S.archive[k])k+="+";
+    const old=SEASONS.find(x=>x.num===S.season);
+    const weekLabels=old?Object.fromEntries(Object.keys(S.weeks||{}).map(w=>[w,wkLabel(+w,old.num,old.p1Wks)])):{};
+    S.archive[k]={weeks:S.weeks,progress:S.progress,weekLabels,archived:new Date().toISOString()};
+  }
+  S.weeks={};S.progress={};S.selectedWeek=1;S.season=SEA_NUM;
+  save();return true;
+}
 
 /* ================================================================
    TIME
 ================================================================ */
 function getCurWk(){const ms=new Date()-SEA_START;if(ms<0)return 1;return Math.min(Math.floor(ms/(7*24*3600*1000))+1,SEA_WKS);}
-function getPW(wn){return wn<=6?{part:1,week:wn}:{part:2,week:wn-6};}
+function getPW(wn){return wn<=P1_WKS?{part:1,week:wn}:{part:2,week:wn-P1_WKS};}
 function getCurPart(){return getPW(getCurWk()).part;}
-function nextWeeklyReset(){return new Date(SEA_START.getTime()+getCurWk()*7*24*3600*1000);}
+function partStartWk(part){return part===1?1:P1_WKS+1;}
+// Week label in the Windows-release style the community uses: S31H1W1 ... S31H1W6, S31H2W1.
+function wkLabel(wn,sea=SEA_NUM,p1=P1_WKS){const h=wn<=p1?1:2;return`S${sea}H${h}W${h===1?wn:wn-p1}`;}
+function nextWeeklyReset(){return new Date(Math.min(SEA_START.getTime()+getCurWk()*7*24*3600*1000,SEA_END.getTime()));}
 function nextDailyReset(){
   const now=new Date();
-  const t=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),DAY_RST_UTC,0,0));
-  return now>=t?new Date(t.getTime()+86400000):t;
+  // 03:00 Pacific falls on the same UTC date. The offset is read at 12:00 UTC, after a DST
+  // change (which happens at 02:00 Pacific), so a change day gets that day's offset.
+  for(let i=0;i<2;i++){
+    const day=Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+i);
+    const t=new Date(day+(DAY_RST_PT+ptOffsetH(new Date(day+12*3600000)))*3600000);
+    if(t>now)return t;
+  }
 }
 function fmtCd(ms){
   if(ms<=0)return"00:00:00";
@@ -777,7 +1139,7 @@ function legSatisfies(leg,c){
 // Score each main against all incomplete weekly challenges
 // Returns array of {legend, cls, score, stars, challenges[]}
 function scoreMains(){
-  const curWn=getCurWk(),cp=getCurPart(),partStart=cp===1?1:7;
+  const curWn=getCurWk(),cp=getCurPart(),partStart=partStartWk(cp);
   const dailyLeg=S.daily.fixed.play4.legend;
   const dailyCls=LEG_CLASS[dailyLeg]||"";
 
@@ -796,7 +1158,7 @@ function scoreMains(){
           score++;
           stars+=parseInt(c.stars)||5;
           const{part,week}=getPW(w);
-          matching.push({c,wlbl:`P${part}W${week}`});
+          matching.push({c,wlbl:wkLabel(w)});
         }
       });
     }
@@ -933,14 +1295,14 @@ function rLegend(){
   // Also score daily legend if not a main
   if(!scoreMap[dailyLeg]){
     const cls=LEG_CLASS[dailyLeg]||"";
-    const curWn=getCurWk(),cp=getCurPart(),ps=cp===1?1:7;
+    const curWn=getCurWk(),cp=getCurPart(),ps=partStartWk(cp);
     let sc=0,st=0,matching=[];
     for(let w=ps;w<=curWn;w++){
       (S.weeks[w]||[]).forEach(c=>{
         if(c.type==="reminder")return;
         const tgt=getTarget(c),val=S.progress[c.id]||0;
         if(val>=tgt)return;
-        if(legSatisfies(dailyLeg,c)){sc++;st+=parseInt(c.stars)||5;const{part,week}=getPW(w);matching.push({c,wlbl:`P${part}W${week}`});}
+        if(legSatisfies(dailyLeg,c)){sc++;st+=parseInt(c.stars)||5;matching.push({c,wlbl:wkLabel(w)});}
       });
     }
     scoreMap[dailyLeg]={leg:dailyLeg,cls,score:sc,stars:st,matching};
@@ -968,7 +1330,7 @@ function rLegend(){
 
   // Render challenges for selected legend
   const listEl=document.getElementById("legendChallengeList");
-  const curWn=getCurWk(),cp=getCurPart(),ps=cp===1?1:7;
+  const curWn=getCurWk(),cp=getCurPart(),ps=partStartWk(cp);
   let html="";
   let totalCount=0,doneCount=0;
 
@@ -1063,7 +1425,7 @@ function rSpotlight(){
     // Show all 5 mains ranked if more than one has score > 0
     const withScore=scored.filter(r=>r.score>0);
     if(withScore.length>1){
-      html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">`;
+      html+=`<div class="spot-mains">`;
       withScore.forEach(r=>{
         const isBest=r.leg===best.leg;
         html+=`<div style="padding:4px 10px;border-radius:3px;background:var(--bg3);border:1px solid ${isBest?"var(--syn-b)":"var(--border)"};font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:${isBest?"#ffc800":"var(--text2)"}">
@@ -1076,7 +1438,7 @@ function rSpotlight(){
   }
 
   // SECTION 3: Remaining high-priority challenges
-  const curWn=getCurWk(),cp=getCurPart(),partStart=cp===1?1:7;
+  const curWn=getCurWk(),cp=getCurPart(),partStart=partStartWk(cp);
   const remaining=[];
   for(let w=partStart;w<=curWn;w++){
     (S.weeks[w]||[]).forEach(c=>{
@@ -1098,7 +1460,7 @@ function rSpotlight(){
     html+=`<div class="spotlight-section"><div class="spotlight-section-hdr">&#127919; Focus</div>`;
     top.forEach(item=>{
       const{part,week}=getPW(item.w);
-      html+=`<div><div class="t5lbl">P${part}W${week}</div>${mkCard(item.c)}</div>`;
+      html+=`<div><div class="t5lbl">${wkLabel(item.w)}</div>${mkCard(item.c)}</div>`;
     });
     html+="</div>";
   }
@@ -1176,8 +1538,10 @@ function isDAct(s){if(s==="play2"||s==="play4")return true;return S.daily.slots[
 /* ================================================================
    PANEL 2: WEEKLY
 ================================================================ */
+// The week buttons are the Weekly area's frames, so they draw into the shell's frame row.
 function rWeekSel(){
-  const sel=document.getElementById("wSel"),curWn=getCurWk(),cp=getCurPart(),partStart=cp===1?1:7;
+  const sel=document.getElementById("frame-row"),curWn=getCurWk(),cp=getCurPart(),partStart=partStartWk(cp);
+  if(S.selectedWeek<partStart||S.selectedWeek>curWn){S.selectedWeek=curWn;save();}
   sel.innerHTML="";
   for(let w=partStart;w<=curWn;w++){
     const{part,week}=getPW(w);
@@ -1187,12 +1551,13 @@ function rWeekSel(){
     const total=countable.length;
     const allDone=total>0&&done===total;
     const btn=document.createElement("button");
-    btn.className="wbtn"+(w===S.selectedWeek?" on":"")+(w===7?" p2":"")+(allDone?" wbtn-done":"");
-    btn.innerHTML=`<span>W${week}</span><span style="display:block;font-size:10px;font-weight:400;opacity:0.8;font-family:'Share Tech Mono',monospace;letter-spacing:0">${total>0?done+"/"+total:"—"}</span>`;
+    btn.type="button";btn.setAttribute("role","tab");btn.setAttribute("aria-selected",w===S.selectedWeek);
+    btn.className="frame-btn"+(w===S.selectedWeek?" on":"")+(allDone?" done":"");
+    btn.title=wkLabel(w);
+    btn.innerHTML=`W${week} <span class="frame-n">${total>0?done+"/"+total:"—"}</span>`;
     btn.onclick=()=>{S.selectedWeek=w;save();rWeekSel();rWeekly();};
     sel.appendChild(btn);
   }
-  if(S.selectedWeek<partStart||S.selectedWeek>curWn){S.selectedWeek=curWn;save();}
 }
 
 function rWeekly(){
@@ -1205,7 +1570,7 @@ function rWeekly(){
   const done=wd.filter(c=>c.done);
   const countable=chs.filter(c=>c.type!=="reminder").length;
   const dc=done.length,C=119.4,rp=countable>0?(dc/countable)*100:0;
-  document.getElementById("wkTitle").textContent=`Part ${part} · Week ${week}`;
+  document.getElementById("wkTitle").textContent=`S${SEA_NUM}H${part} · Week ${week}`;
   document.getElementById("wkSub").textContent=`${dc} / ${countable} completed`;
   document.getElementById("wkRing").style.strokeDashoffset=C-(C*rp/100);
   document.getElementById("wkPct").textContent=Math.round(rp)+"%";
@@ -1219,7 +1584,7 @@ function rWeekly(){
    PANEL 3: ALL
 ================================================================ */
 function rAll(){
-  const cp=getCurPart(),curWn=getCurWk(),partStart=cp===1?1:7;
+  const cp=getCurPart(),curWn=getCurWk(),partStart=partStartWk(cp);
   let td=0,ta=0,html="";
   for(let w=partStart;w<=curWn;w++){
     const chs=S.weeks[w]||[],{part,week}=getPW(w);
@@ -1232,7 +1597,7 @@ function rAll(){
     html+=`<div class="wgrp"><div class="wghdr">Week ${week} <span>${done}/${countable.length}</span></div>${[...inc,...dn].map(c=>mkCard(c)).join("")}</div>`;
   }
   const rp=ta>0?(td/ta)*100:0,C=119.4;
-  document.getElementById("allTitle").textContent=`Part ${cp}`;
+  document.getElementById("allTitle").textContent=`S${SEA_NUM}H${cp}`;
   document.getElementById("allSub").textContent=`${td} / ${ta} completed`;
   document.getElementById("allRing").style.strokeDashoffset=C-(C*rp/100);
   document.getElementById("allPct").textContent=Math.round(rp)+"%";
@@ -1240,23 +1605,137 @@ function rAll(){
 }
 
 /* ================================================================
-   PANEL NAV
+   SHELL: RAIL AREAS, FRAMES, FOOTER, DRAWER
 ================================================================ */
-const PLBLS=["Spotlight","Legend","Daily","Weekly","All"];
-const PANEL_IDS=["p0","pLegend","p1","p2","p3"];
-function setPanel(n){
-  S.panel=n;
-  document.querySelectorAll(".panel").forEach(p=>p.classList.remove("on"));
-  const active=document.getElementById(PANEL_IDS[n]);
-  if(active)active.classList.add("on");
-  document.querySelectorAll(".pdot").forEach((d,i)=>d.classList.toggle("on",i===n));
-  document.getElementById("pLbl").textContent=PLBLS[n];
+// S.panel is an index into this list. Saves from before the shell use 0-4, which still match.
+const AREAS=[
+  {id:"p0",       lbl:"Spotlight",short:"★",sub:"Open dailies, the best legend to play and the top challenges"},
+  {id:"pLegend",  lbl:"Legend",   short:"◉",sub:"The open challenges that each legend can do"},
+  {id:"p1",       lbl:"Daily",    short:"☀",sub:"Today's challenges"},
+  {id:"p2",       lbl:"Weekly",   short:"▦",sub:"One frame for each week of this split"},
+  {id:"p3",       lbl:"All",      short:"≡",sub:"Every week of this split"},
+  {id:"pSettings",lbl:"Settings", short:"⚙",sub:"Mains, daily tracking and the save file"},
+];
+const SET_FRAMES=[["mains","My Mains"],["data","Data"]];
+let _setFrame="mains";
 
-
-  renderP(n);
+function buildRail(){
+  document.getElementById("rail-nav").innerHTML=AREAS.map((a,i)=>
+    `<button type="button" class="area" data-short="${a.short}" title="${a.lbl}" onclick="setPanel(${i})">
+      <span class="lbl">${a.lbl}</span><span class="pct" id="rc${i}"></span>
+      <span class="meter" id="rm${i}" style="display:none"><i></i></span>
+    </button>`).join("");
 }
-function shiftP(d){setPanel((S.panel+d+5)%5);}
-function renderP(n){if(n===0)rSpotlight();if(n===1)rLegend();if(n===2)rDaily();if(n===3){rWeekSel();rWeekly();}if(n===4)rAll();}
+function setPanel(n){
+  if(!(n>=0&&n<AREAS.length))n=0;
+  S.panel=n;
+  AREAS.forEach((a,i)=>document.getElementById(a.id).classList.toggle("on",i===n));
+  document.querySelectorAll("#rail-nav .area").forEach((b,i)=>{
+    b.classList.toggle("on",i===n);
+    if(i===n)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");
+  });
+  document.getElementById("pLbl").textContent=AREAS[n].lbl;
+  document.getElementById("pSub").textContent=AREAS[n].sub;
+  setMobileRailOpen(false);
+  renderP(n);
+  window.scrollTo(0,0);
+}
+function renderP(n){
+  if(n===0)rSpotlight();if(n===1)rLegend();if(n===2)rDaily();if(n===3){rWeekSel();rWeekly();}if(n===4)rAll();if(n===5)rSettings();
+  renderFrames(n);updRailCounts();
+}
+// Weekly draws its own frames in rWeekSel(); every other area without frames clears the row.
+function renderFrames(n){
+  const row=document.getElementById("frame-row");
+  if(n===3)return;
+  if(n===5){
+    row.innerHTML=SET_FRAMES.map(([k,l])=>`<button type="button" class="frame-btn${_setFrame===k?" on":""}" role="tab" aria-selected="${_setFrame===k}" onclick="setSetFrame('${k}')">${l}</button>`).join("");
+    document.querySelectorAll("#pSettings [data-frame]").forEach(f=>f.classList.toggle("frame-on",f.dataset.frame===_setFrame));
+    return;
+  }
+  row.innerHTML="";
+}
+function setSetFrame(k){_setFrame=k;renderFrames(5);}
+function openData(){_setFrame="data";setPanel(5);}
+
+// Count and meter beside each rail area. Spotlight and Legend have no single honest measure.
+function updRailCounts(){
+  const set=(i,txt,frac)=>{
+    const c=document.getElementById("rc"+i),m=document.getElementById("rm"+i);
+    if(c)c.textContent=txt;
+    if(m){m.style.display=frac==null?"none":"";if(frac!=null)m.firstElementChild.style.width=Math.round(frac*100)+"%";}
+  };
+  if(S.dailyEnabled){
+    const ds=["play2","play4",...S.daily.slots.map((_,i)=>i)].filter(s=>isDAct(s)&&!(typeof s==="number"&&S.daily.slots[s].type==="reminder"));
+    const d=ds.filter(isDDone).length;
+    set(2,`${d}/${ds.length}`,ds.length?d/ds.length:null);
+  }else set(2,"off",null);
+  const cnt=w=>{const c=(S.weeks[w]||[]).filter(x=>x.type!=="reminder");return[c.filter(x=>(S.progress[x.id]||0)>=getTarget(x)).length,c.length];};
+  const curWn=getCurWk(),[wd,wt]=cnt(curWn);
+  set(3,wt?`${wd}/${wt}`:"",wt?wd/wt:null);
+  let ad=0,at=0;
+  for(let w=partStartWk(getCurPart());w<=curWn;w++){const[a,b]=cnt(w);ad+=a;at+=b;}
+  set(4,at?`${ad}/${at}`:"",at?ad/at:null);
+}
+
+// Footer rotation. footTick() runs from the one-second interval in init().
+let _footI=0,_footT=0;
+function buildFootDots(){
+  const items=document.querySelectorAll("#foot-slot .foot-item"),dots=document.getElementById("foot-dots");
+  dots.innerHTML="";
+  items.forEach((it,i)=>{
+    const b=document.createElement("button");
+    b.type="button";b.title=it.dataset.name;b.setAttribute("aria-label",it.dataset.name);
+    b.onclick=()=>{showFoot(i);_footT=0;};
+    dots.appendChild(b);
+  });
+  showFoot(0);
+}
+function showFoot(i){
+  _footI=i;
+  document.querySelectorAll("#foot-slot .foot-item").forEach((el,j)=>el.classList.toggle("on",j===i));
+  document.querySelectorAll("#foot-dots button").forEach((el,j)=>el.classList.toggle("on",j===i));
+}
+function footTick(){
+  if(++_footT<5)return;
+  _footT=0;
+  const items=[...document.querySelectorAll("#foot-slot .foot-item")];
+  const urgent=items.map((el,i)=>el.querySelector(".urgent")?i:-1).filter(i=>i>=0);
+  const pool=urgent.length?urgent:items.map((_,i)=>i);
+  const next=pool.find(i=>i>_footI);
+  showFoot(next!==undefined?next:pool[0]);
+}
+
+function toggleRail(){
+  const r=document.getElementById("rail");
+  S.railCollapsed=!r.classList.contains("collapsed");
+  applyRailCollapsed();save();
+}
+function applyRailCollapsed(){
+  document.getElementById("rail").classList.toggle("collapsed",!!S.railCollapsed);
+  const b=document.getElementById("ico-collapse");
+  b.innerHTML=S.railCollapsed?"&rsaquo;":"&lsaquo;";
+  b.title=S.railCollapsed?"Expand the rail":"Collapse the rail";
+}
+function toggleInstructions(){
+  const p=document.getElementById("instructions-panel"),on=p.style.display==="none";
+  p.style.display=on?"":"none";
+  document.getElementById("instructions-toggle-btn").classList.toggle("active",on);
+  if(on){setMobileRailOpen(false);window.scrollTo(0,0);}
+}
+function setMobileRailOpen(open){
+  document.getElementById("rail").classList.toggle("mobile-open",open);
+  document.getElementById("rail-backdrop").hidden=!open;
+  document.getElementById("mobile-menu-toggle").setAttribute("aria-expanded",open);
+  document.body.classList.toggle("mobile-menu-open",open);
+}
+function toggleMobileRail(){setMobileRailOpen(!document.getElementById("rail").classList.contains("mobile-open"));}
+// The rail and the pane top pin below the site bar, which wraps to two lines on a narrow screen.
+function measureShell(){
+  const b=document.getElementById("sitebar");
+  if(b)document.documentElement.style.setProperty("--sitebar-h",b.offsetHeight+"px");
+}
+window.addEventListener("resize",measureShell);
 
 /* ================================================================
    ACTIONS
@@ -1281,7 +1760,7 @@ function fixedCtr(slot,d){
     S.daily.fixed.play2.val=Math.min((S.daily.fixed.play2.val||0)+1,4);
     addStat("matches",1);
     const leg=S.daily.fixed.play4.legend,legCls=(LEG_CLASS[leg]||"").toLowerCase();
-    const curWn=getCurWk(),cp=getCurPart(),ps=cp===1?1:7;
+    const curWn=getCurWk(),cp=getCurPart(),ps=partStartWk(cp);
     for(let w=ps;w<=curWn;w++){
       (S.weeks[w]||[]).forEach(c=>{
         if(c.type!=="play_matches_class")return;
@@ -1293,7 +1772,7 @@ function fixedCtr(slot,d){
   }
   if(slot==="play2"&&d>0){
     addStat("matches",1);
-    const curWn=getCurWk(),cp=getCurPart(),ps=cp===1?1:7;
+    const curWn=getCurWk(),cp=getCurPart(),ps=partStartWk(cp);
     for(let w=ps;w<=curWn;w++){
       (S.weeks[w]||[]).forEach(c=>{
         if(c.type!=="play_matches")return;
@@ -1518,7 +1997,7 @@ function saveDailySlot(){
 /* ================================================================
    SETTINGS
 ================================================================ */
-function showSettings(){
+function rSettings(){
   // Populate main selects
   CLASSES.forEach(cls=>{
     const sel=document.getElementById("main"+cls);
@@ -1532,10 +2011,9 @@ function showSettings(){
     });
   });
   document.getElementById("dailyToggle").classList.toggle("on",S.dailyEnabled);
-  document.getElementById("ovSettings").classList.add("on");
 }
 function saveMain(cls,val){S.mains[cls]=val;save();}
-function toggleDailyEnabled(){S.dailyEnabled=!S.dailyEnabled;document.getElementById("dailyToggle").classList.toggle("on",S.dailyEnabled);save();}
+function toggleDailyEnabled(){S.dailyEnabled=!S.dailyEnabled;document.getElementById("dailyToggle").classList.toggle("on",S.dailyEnabled);save();updRailCounts();}
 function confirmClearAll(){
   closeOv("ovSettings");
   document.getElementById("ovConfirmTitle").textContent="Clear All?";
@@ -1566,7 +2044,8 @@ function importData(ev){
     try{
       const data=JSON.parse(e.target.result);
       S={...DS,...data};if(!S.daily)S.daily=DS.daily;if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));if(!S.weeks)S.weeks={};if(!S.mains)S.mains={...DS.mains};
-      save();setTheme(S.theme||"red");setPanel(0);alert("Imported successfully.");
+      S.season=data.season||30;archiveSeason();
+      save();setTheme(S.theme||"poetic");applyRailCollapsed();setPanel(0);alert("Imported successfully.");
     }catch{alert("Invalid save file.");}
   };
   r.readAsText(file);ev.target.value="";
@@ -1595,55 +2074,73 @@ function showStats(){
 /* ================================================================
    THEME
 ================================================================ */
+// The shell's three themes. Saves from before the shell hold red, gold or white.
+const THEMES=["poetic","midnight","daylight"];
+const OLD_THEMES={red:"midnight",white:"midnight",gold:"daylight"};
 function setTheme(t){
+  t=OLD_THEMES[t]||t;
+  if(!THEMES.includes(t))t="poetic";
   S.theme=t;
-  document.documentElement.dataset.theme=t==="red"?"":t;
-  document.querySelectorAll(".tbtn").forEach(b=>b.classList.toggle("active",b.dataset.t===t));
+  // Poetic is :root itself, so it is the absence of the attribute.
+  if(t==="poetic")delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme=t;
+  const sel=document.getElementById("theme-sel");if(sel)sel.value=t;
   save();
 }
 
 /* ================================================================
    OVERLAYS
 ================================================================ */
-function closeOv(id){document.getElementById(id).classList.remove("on");}
+function closeOv(id){const el=document.getElementById(id);if(el)el.classList.remove("on");}
 
 /* ================================================================
    INFO BAR + RESET DETECTION
 ================================================================ */
 let _lastD=null,_lastW=null;
 function setChipUrgency(id, msLeft, pulseThresh, blinkThresh){
-  const el=document.querySelector(`#${id}`)?.closest?.('.chip')||document.getElementById(id)?.parentElement?.parentElement;
-  // find the chip wrapper — chips contain chip-lbl and chip-val
-  const chips=document.querySelectorAll('.chip');
-  let chip=null;
-  chips.forEach(c=>{const v=c.querySelector('#'+id);if(v)chip=c;});
-  if(!chip)return;
-  chip.classList.remove('urgent','chip-pulse','chip-blink');
-  if(msLeft<=blinkThresh){chip.classList.add('urgent','chip-blink');}
-  else if(msLeft<=pulseThresh){chip.classList.add('urgent','chip-pulse');}
+  const bar=document.getElementById(id)?.closest(".reset-bar");
+  if(!bar)return;
+  bar.classList.remove('urgent','chip-pulse','chip-blink');
+  if(msLeft<=blinkThresh){bar.classList.add('urgent','chip-blink');}
+  else if(msLeft<=pulseThresh){bar.classList.add('urgent','chip-pulse');}
 }
+const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function fmtUtc(d){return`${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} UTC`;}
 
 function updInfo(){
   const now=new Date(),wn=getCurWk(),{part,week}=getPW(wn);
-  const end=new Date(SEA_START.getTime()+SEA_WKS*7*24*3600*1000);
-  const dl=Math.floor((end-now)/86400000); // whole days, like the in-game timer
-  document.getElementById("iSeason").textContent=`S30 P${part}W${week}`;
+  const dl=Math.floor((SEA_END-now)/86400000); // whole days, like the in-game timer
+  const nx=SEASONS.find(s=>new Date(s.start)>now);
+  document.getElementById("iSeason").textContent=wkLabel(wn);
+  document.getElementById("hdrSub").textContent=`Season ${SEA_NUM} ${SEA_NAME}`;
   const weeklyMs=nextWeeklyReset()-now;
   const dailyMs=nextDailyReset()-now;
   document.getElementById("iWeekly").textContent=fmtCd(weeklyMs);
+  document.getElementById("iWeeklyWhat").textContent=
+    wn>=SEA_WKS||nextWeeklyReset()>=SEA_END?(nx?`Then Season ${nx.num} ${nx.name}`:"Then the season ends"):`Then ${wkLabel(wn+1)}`;
   document.getElementById("iDaily").textContent=fmtCd(dailyMs);
-  document.getElementById("iEnd").textContent=`${dl}d left`;
+  document.getElementById("iDailyWhat").textContent=`At ${String(nextDailyReset().getUTCHours()).padStart(2,"0")}:00 UTC (03:00 Pacific)`;
+  document.getElementById("iEnd").textContent=`${dl} day${dl===1?"":"s"}`;
+  // With no next season in SEASONS, the end comes from the week count, which is a guess.
+  document.getElementById("iEndWhat").textContent=fmtUtc(SEA_END)+(nx?"":" (estimate)");
   const dv=document.getElementById("dResetVal");if(dv)dv.textContent=fmtCd(dailyMs);
   // Urgency: daily pulse <60m, blink <15m / weekly pulse <8h, blink <60m
   setChipUrgency("iWeekly", weeklyMs, 8*3600*1000, 60*60*1000);
   setChipUrgency("iDaily",  dailyMs,  60*60*1000,  15*60*1000);
 }
 function chkResets(){
+  pickSeason();
+  if(archiveSeason()){
+    _lastW=getCurWk();renderP(S.panel);
+    document.getElementById("ovResetTitle").textContent=`Season ${SEA_NUM} Live`;
+    document.getElementById("ovResetBody").innerHTML=`Season ${SEA_NUM} ${SEA_NAME} has started. Your earlier weekly challenges are archived in your save.<br><strong>Add your new challenges to get started.</strong>`;
+    document.getElementById("ovReset").classList.add("on");
+  }
   const now=new Date(),wn=getCurWk();
   const db=nextDailyReset().getTime()-86400000;
   if(_lastD===null){_lastD=db;}
   else if(now.getTime()>_lastD+86400000){
-    _lastD+=86400000;
+    _lastD=db; // jump to the latest reset, so several missed days (a sleeping computer) show one popup
     trackLegApp();
     const wpnSlot=S.daily.slots.find(s=>s.type==="dmg_weapon"&&s.active);
     if(wpnSlot&&wpnSlot.wpn){if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));S.stats.weapons[wpnSlot.wpn]=(S.stats.weapons[wpnSlot.wpn]||0)+1;}
@@ -1658,7 +2155,7 @@ function chkResets(){
   else if(wn!==_lastW){
     const{part,week}=getPW(wn);_lastW=wn;S.selectedWeek=wn;save();renderP(S.panel);
     document.getElementById("ovResetTitle").textContent=`Week ${week} Live`;
-    document.getElementById("ovResetBody").innerHTML=`Part ${part}, Week ${week} is now active.<br><strong>Add your new challenges to get started.</strong>`;
+    document.getElementById("ovResetBody").innerHTML=`${wkLabel(wn)} is now active.<br><strong>Add your new challenges to get started.</strong>`;
     document.getElementById("ovReset").classList.add("on");
   }
 }
@@ -1696,9 +2193,10 @@ function executeFactoryReset(){
   // Wipe everything — full factory reset
   localStorage.removeItem("cm5");
   S=JSON.parse(JSON.stringify(DS));
+  S.season=SEA_NUM;
   save();
   closeOv("ovFactory");
-  setTheme("red");
+  setTheme("poetic");applyRailCollapsed();
   setPanel(0);
   // Re-render everything fresh
   renderP(0);
@@ -1706,10 +2204,12 @@ function executeFactoryReset(){
 }
 
 function init(){
-  load();setTheme(S.theme||"red");
+  load();setTheme(S.theme||"poetic");
   if(!S.selectedWeek)S.selectedWeek=getCurWk();
+  buildRail();buildFootDots();applyRailCollapsed();measureShell();
+  if(document.fonts)document.fonts.ready.then(measureShell);
   setPanel(S.panel||0);updInfo();chkResets();
-  setInterval(()=>{updInfo();chkResets();},1000);
+  setInterval(()=>{updInfo();chkResets();footTick();},1000);
 }
 init();
 </script>
@@ -1723,7 +2223,7 @@ init();
       This will delete <strong>everything</strong> — all challenges, progress, settings, stats.<br><br>
       Type <strong style="color:var(--a2);letter-spacing:0.1em">RESET ALL</strong> to confirm.
     </div>
-    <input type="text" id="factoryInput"
+    <input type="text" id="factoryInput" 
       style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:16px;padding:8px 10px;text-align:center;letter-spacing:0.15em;text-transform:uppercase;outline:none;margin-bottom:16px"
       placeholder="type RESET ALL"
       oninput="checkFactoryInput(this.value)">
