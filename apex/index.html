@@ -558,29 +558,16 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
         <p>The tracker has three themes: Poetic, Midnight and Daylight. Select a theme in the list at the right of the bar at the top of the page.</p>
       </div>
 
-      <div class="panel on" id="p0"><div id="spotlightList"></div></div>
-      <div class="panel" id="pLegend">
-        <div id="legendPickerRow" style="display:flex;flex-wrap:nowrap;gap:8px;padding:0 0 14px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;"></div>
-        <div id="legendChallengeList"></div>
-      </div>
+      <!-- Spotlight, Legend, Daily (#dList), Weekly and All are drawn by Vue. -->
+      <div class="panel on" id="p0"><div id="spotlightApp"></div></div>
+      <div class="panel" id="pLegend"><div id="legendApp"></div></div>
       <div class="panel" id="p1">
         <div class="dreset"><span class="dreset-lbl">Next Daily Reset</span><span class="dreset-val" id="dResetVal">--:--:--</span></div>
         <div id="dList"></div>
       </div>
-      <div class="panel" id="p2">
-        <div class="phdr">
-          <div><div class="phdr-title" id="wkTitle">Week 1</div><div class="phdr-sub" id="wkSub">0 / 10</div></div>
-          <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" id="wkRing" cx="25" cy="25" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><div class="rpct" id="wkPct">0%</div></div>
-        </div>
-        <div id="wkList"></div>
-      </div>
-      <div class="panel" id="p3">
-        <div class="phdr">
-          <div><div class="phdr-title" id="allTitle">Part 1</div><div class="phdr-sub" id="allSub">0 / 0</div></div>
-          <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" id="allRing" cx="25" cy="25" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><div class="rpct" id="allPct">0%</div></div>
-        </div>
-        <div id="allList"></div>
-      </div>
+      <!-- The Weekly week buttons are in the frame row. -->
+      <div class="panel" id="p2"><div id="weeklyApp"></div></div>
+      <div class="panel" id="p3"><div id="allApp"></div></div>
       <div class="panel" id="pSettings">
         <div data-frame="mains">
           <div class="s-section">My Mains</div>
@@ -906,6 +893,7 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
   </div>
 </div>
 
+<script src="vendor/vue.global.prod.js"></script>
 <script>
 /* ================================================================
    CONSTANTS
@@ -1047,7 +1035,13 @@ const DS={
   stats:{matches:0,damage:0,kills:0,revives:0,headshots:0,rings:0,health:0,shields:0,wins:0,legends:{},classes:{},weapons:{}}
 };
 
-let S=JSON.parse(JSON.stringify(DS));
+// S lives in store.S, a reactive object, so the Vue panels redraw themselves when it changes.
+// Always replace S through setState(): a plain assignment would leave the Vue panels watching
+// the old object. JSON.stringify reads the reactive object like a plain one, so cm5 is unchanged.
+const store=Vue.reactive({S:null});
+let S;
+function setState(o){store.S=o;S=store.S;}
+setState(JSON.parse(JSON.stringify(DS)));
 let _bEditId=null,_bWeek=null,_dEditIdx=null;
 
 function load(){
@@ -1055,7 +1049,7 @@ function load(){
     const r=localStorage.getItem("cm5");
     if(r){
       const p=JSON.parse(r);
-      S={...DS,...p};
+      setState({...DS,...p});
       if(!S.daily)S.daily=DS.daily;
       if(!S.daily.fixed)S.daily.fixed=DS.daily.fixed;
       if(!S.daily.slots)S.daily.slots=DS.daily.slots;
@@ -1202,52 +1196,6 @@ function getMainHint(c){
   return`<div class="main-hint">&#128165; Play as ${hints.join(" or ")}</div>`;
 }
 
-/* ================================================================
-   RENDER CHALLENGE CARD
-================================================================ */
-function mkCard(c){
-  const tgt=getTarget(c);
-  const val=S.progress[c.id]||0;
-  const pct=Math.min(100,(val/tgt)*100);
-  const done=c.type==="reminder"?false:val>=tgt;
-  const syn=!done&&challengeHasSynergy(c);
-  const isReminder=c.type==="reminder";
-  const stars=parseInt(c.stars)||5;
-  const hasClassHint=["play_matches_class","dmg_class","reinforce_hardlight"].includes(c.type);
-
-  let cls="cc"+(done?" done":"")+(syn?" syn":"");
-
-  if(isReminder){
-    return`<div class="${cls}" data-id="${c.id}">
-      <div class="ctxt">${chText(c)}</div>
-      <div class="syntag" style="color:var(--text3)">Reminder only</div>
-    </div>`;
-  }
-
-  const starStr="&#11088;".repeat(Math.min(stars,10));
-  const mainHint=(!done&&hasClassHint)?getMainHint(c):"";
-  const synTag=syn?`<div class="syntag">&#9889; SYNERGY WITH DAILY</div>`:"";
-
-  return`<div class="${cls}" data-id="${c.id}">
-    <div class="ctxt">${chText(c)}</div>
-    <div style="position:absolute;top:9px;right:9px;display:flex;gap:4px">
-      <button class="sbtn" style="position:relative;top:auto;right:auto" onclick="starC('${c.id}',${tgt})">&#9733;</button>
-      <button class="sbtn" style="position:relative;top:auto;right:auto;color:var(--b2);border-color:var(--b);font-size:12px" onclick="editCard('${c.id}')">&#9998;</button>
-    </div>
-    <div class="prow">
-      <div class="btrack"><div class="bfill" style="width:${pct}%"></div><div class="blbl">${val.toLocaleString()} / ${tgt.toLocaleString()}</div></div>
-      <input class="pinput" type="text" inputmode="numeric" pattern="[0-9]*" value="${val}"
-        onblur="commitP('${c.id}',this.value)"
-        onkeydown="if(event.key==='Enter'){this.blur();}"
-        onfocus="this.select()">
-    </div>
-    <div class="cdone">&#10003; Completed</div>
-    <div class="star-badge">&#11088; ${stars} stars</div>
-    ${mainHint}
-    ${synTag}
-  </div>`;
-}
-
 function challengeHasSynergy(c){
   const leg=S.daily.fixed.play4.legend;
   const legCls=(LEG_CLASS[leg]||"").toLowerCase();
@@ -1259,275 +1207,6 @@ function challengeHasSynergy(c){
   return false;
 }
 
-/* ================================================================
-   PANEL 0: SPOTLIGHT
-================================================================ */
-/* ================================================================
-   PANEL 1: LEGEND
-================================================================ */
-let _selectedLegend=null;
-
-function getDefaultLegend(){
-  // Default: whoever satisfies most stars (same as Best Pick)
-  const scored=scoreMains();
-  const best=scored[0];
-  if(best&&best.score>0)return best.leg;
-  // Fallback to daily legend
-  return S.daily.fixed.play4.legend||"Fuse";
-}
-
-function rLegend(){
-  // Determine available legends: 5 mains + daily legend (deduplicated)
-  const dailyLeg=S.daily.fixed.play4.legend;
-  const mainsLegs=Object.values(S.mains);
-  const allLegs=[...new Set([dailyLeg,...mainsLegs])];
-
-  // Default selection
-  if(!_selectedLegend||!allLegs.includes(_selectedLegend)){
-    _selectedLegend=getDefaultLegend();
-  }
-
-  // Score each legend for star potential
-  const scored=scoreMains();
-  const scoreMap={};
-  scored.forEach(r=>{scoreMap[r.leg]=r;});
-
-  // Also score daily legend if not a main
-  if(!scoreMap[dailyLeg]){
-    const cls=LEG_CLASS[dailyLeg]||"";
-    const curWn=getCurWk(),cp=getCurPart(),ps=partStartWk(cp);
-    let sc=0,st=0,matching=[];
-    for(let w=ps;w<=curWn;w++){
-      (S.weeks[w]||[]).forEach(c=>{
-        if(c.type==="reminder")return;
-        const tgt=getTarget(c),val=S.progress[c.id]||0;
-        if(val>=tgt)return;
-        if(legSatisfies(dailyLeg,c)){sc++;st+=parseInt(c.stars)||5;matching.push({c,wlbl:wkLabel(w)});}
-      });
-    }
-    scoreMap[dailyLeg]={leg:dailyLeg,cls,score:sc,stars:st,matching};
-  }
-
-  // Render picker row
-  const picker=document.getElementById("legendPickerRow");
-  picker.innerHTML=allLegs.map(leg=>{
-    const isDailyLeg=leg===dailyLeg;
-    const isMainAndDaily=isDailyLeg&&mainsLegs.includes(leg);
-    const isSelected=leg===_selectedLegend;
-    const sc=scoreMap[leg];
-    const stars=sc?sc.stars:0;
-    const border=isSelected?"2px solid var(--a2)":isDailyLeg?"2px solid var(--b2)":"1px solid var(--border)";
-    const bg=isSelected?"var(--bg2)":"var(--bg3)";
-    const glow=isMainAndDaily?"box-shadow:0 0 12px var(--syn-b);":"";
-    const crown=isMainAndDaily?"&#128081; ":"";
-    const legColor=isSelected?"var(--a2)":isDailyLeg?"var(--b2)":"var(--text2)";
-    return`<div onclick="selectLegend('${leg}')" style="cursor:pointer;padding:6px 10px;border-radius:4px;background:${bg};border:${border};${glow}flex-shrink:0;text-align:center;transition:all 0.15s">
-      <div style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:${legColor};white-space:nowrap">${crown}${leg}</div>
-      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3);margin-top:1px">${LEG_CLASS[leg]||""}</div>
-      <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--star);margin-top:1px">&#11088; ${stars}</div>
-    </div>`;
-  }).join("");
-
-  // Render challenges for selected legend
-  const listEl=document.getElementById("legendChallengeList");
-  const curWn=getCurWk(),cp=getCurPart(),ps=partStartWk(cp);
-  let html="";
-  let totalCount=0,doneCount=0;
-
-  for(let w=ps;w<=curWn;w++){
-    const chs=S.weeks[w]||[];
-    const{part,week}=getPW(w);
-    const matching=chs.filter(c=>c.type!=="reminder"&&legSatisfies(_selectedLegend,c)&&(S.progress[c.id]||0)<getTarget(c));
-    if(!matching.length)continue;
-    const wd=matching.map(c=>{
-      const tgt=getTarget(c),val=S.progress[c.id]||0;
-      return{...c,val,tgt,done:val>=tgt,pct:Math.min(100,(val/tgt)*100)};
-    });
-    const inc=wd.filter(c=>!c.done).sort((a,b)=>b.pct-a.pct);
-    const done=wd.filter(c=>c.done);
-    totalCount+=matching.length;doneCount+=done.length;
-    html+=`<div class="wgrp"><div class="wghdr">Week ${week} <span>${done.length}/${matching.length}</span></div>${[...inc,...done].map(c=>mkCard(c)).join("")}</div>`;
-  }
-
-  // Daily challenges for this legend
-  const dailyMatches=[];
-  if(_selectedLegend===dailyLeg){
-    // Show all active dailies
-    if((S.daily.fixed.play4.val||0)<4)dailyMatches.push(mkDailyCard("play4"));
-    if((S.daily.fixed.play2.val||0)<2)dailyMatches.push(mkDailyCard("play2"));
-    S.daily.slots.forEach((_,i)=>{if(S.daily.slots[i].active&&!isDDone(i))dailyMatches.push(mkDailyCard(i));});
-  }
-
-  const cls=LEG_CLASS[_selectedLegend]||"";
-  const sc2=scoreMap[_selectedLegend];
-  const isDailyPick=_selectedLegend===dailyLeg;
-
-  listEl.innerHTML=`
-    <div style="padding:4px 0 12px">
-      <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;text-transform:uppercase;color:var(--a2)">${_selectedLegend}</div>
-      <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text2);margin-top:2px">${cls}${isDailyPick?" &middot; TODAY'S DAILY":""}</div>
-      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text2);margin-top:4px">${doneCount}/${totalCount} weekly challenges &middot; &#11088; ${sc2?sc2.stars:0} potential stars</div>
-    </div>
-    ${dailyMatches.length?`<div class="spotlight-section"><div class="spotlight-section-hdr">&#9201; Daily</div>${dailyMatches.join("")}</div>`:""}
-    ${html||`<div class="t5empty" style="color:var(--text3)">No weekly challenges for ${_selectedLegend} this part.</div>`}
-  `;
-}
-
-function selectLegend(leg){
-  _selectedLegend=leg;
-  rLegend();
-}
-
-function rSpotlight(){
-  const el=document.getElementById("spotlightList");
-  let html="";
-
-  // SECTION 1: Incomplete dailies
-  const incompleteDailies=[];
-  const p2=S.daily.fixed.play2;
-  const p4=S.daily.fixed.play4;
-  if(S.dailyEnabled){
-    if((p2.val||0)<2)incompleteDailies.push({type:"play2",stars:p2.stars||1});
-    if((p4.val||0)<4)incompleteDailies.push({type:"play4",stars:p4.stars||2,leg:p4.legend});
-    S.daily.slots.forEach((sl,i)=>{
-      if(!sl.active||sl.type==="reminder")return;
-      const tgt=parseInt(sl.n1)||1;
-      if((sl.val||0)<tgt)incompleteDailies.push({type:"slot",idx:i,stars:parseInt(sl.stars)||2});
-    });
-    incompleteDailies.sort((a,b)=>(b.stars||0)-(a.stars||0));
-  }
-
-  if(incompleteDailies.length){
-    html+=`<div class="spotlight-section"><div class="spotlight-section-hdr">&#9201; Daily — Resets in ${fmtCd(nextDailyReset()-new Date())}</div>`;
-    incompleteDailies.forEach(d=>{
-      if(d.type==="play2"||d.type==="play4")html+=mkDailyCard(d.type);
-      else html+=mkDailyCard(d.idx);
-    });
-    html+="</div>";
-  }
-
-  // SECTION 2: Legend recommendation
-  const scored=scoreMains();
-  const best=scored[0];
-  if(best&&best.score>0){
-    const dailyLeg=S.daily.fixed.play4.legend;
-    const isDailyMatch=best.dailyMatch;
-    const why=best.matching.map(m=>`${m.wlbl}`).join(", ");
-    const totalStars=best.matching.reduce((s,m)=>s+(parseInt(m.c.stars)||5),0);
-    html+=`<div class="spotlight-section"><div class="spotlight-section-hdr">&#128165; Best Pick</div>
-      <div class="legend-rec">
-        <div class="legend-rec-name">${best.leg}</div>
-        <div class="legend-rec-cls">${best.cls}</div>
-        <div class="legend-rec-why">Satisfies <strong>${best.score}</strong> incomplete challenge${best.score!==1?"s":""} across ${why}</div>
-        <div class="legend-rec-stars">&#11088; ${totalStars} potential stars</div>
-      </div>`;
-
-    // Show all 5 mains ranked if more than one has score > 0
-    const withScore=scored.filter(r=>r.score>0);
-    if(withScore.length>1){
-      html+=`<div class="spot-mains">`;
-      withScore.forEach(r=>{
-        const isBest=r.leg===best.leg;
-        html+=`<div style="padding:4px 10px;border-radius:3px;background:var(--bg3);border:1px solid ${isBest?"var(--syn-b)":"var(--border)"};font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:${isBest?"#ffc800":"var(--text2)"}">
-          ${r.leg} <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text3)">${r.score}&#x2715;</span>
-        </div>`;
-      });
-      html+="</div>";
-    }
-    html+="</div>";
-  }
-
-  // SECTION 3: Remaining high-priority challenges
-  const curWn=getCurWk(),cp=getCurPart(),partStart=partStartWk(cp);
-  const remaining=[];
-  for(let w=partStart;w<=curWn;w++){
-    (S.weeks[w]||[]).forEach(c=>{
-      if(c.type==="reminder")return;
-      const tgt=getTarget(c);
-      const val=S.progress[c.id]||0;
-      if(val>=tgt)return;
-      remaining.push({c,w,stars:parseInt(c.stars)||5});
-    });
-  }
-  // Sort: stars desc, then oldest week first
-  remaining.sort((a,b)=>{
-    if(b.stars!==a.stars)return b.stars-a.stars;
-    return a.w-b.w;
-  });
-
-  const top=remaining.slice(0,5);
-  if(top.length){
-    html+=`<div class="spotlight-section"><div class="spotlight-section-hdr">&#127919; Focus</div>`;
-    top.forEach(item=>{
-      const{part,week}=getPW(item.w);
-      html+=`<div><div class="t5lbl">${wkLabel(item.w)}</div>${mkCard(item.c)}</div>`;
-    });
-    html+="</div>";
-  }
-
-  if(!incompleteDailies.length&&(!best||best.score===0)&&!top.length){
-    html=`<div class="t5empty">Everything complete!<br>&#128081; Well played.</div>`;
-  }
-
-  el.innerHTML=html;
-}
-
-/* ================================================================
-   PANEL 1: DAILY
-================================================================ */
-function mkDailyCard(slot){
-  if(slot==="play2"){
-    const val=S.daily.fixed.play2.val||0,done=val>=2,stars=S.daily.fixed.play2.stars||1;
-    return`<div class="dc${done?" done":""}">
-      <div class="dhdr"><div class="dtxt">Play <span class="num">2</span> matches</div></div>
-      <div class="star-badge">&#11088; ${stars} star${stars!==1?"s":""}</div>
-      <div class="crow"><button class="cbtn" onclick="fixedCtr('play2',-1)">&#8722;</button><div class="cdisp">${val}</div><span class="ctarg">/ 2</span><button class="cbtn" onclick="fixedCtr('play2',1)">+</button></div>
-      <div class="ddone">&#10003; Completed</div>
-    </div>`;
-  }
-  if(slot==="play4"){
-    const val=S.daily.fixed.play4.val||0,leg=S.daily.fixed.play4.legend||"Fuse",done=val>=4,stars=S.daily.fixed.play4.stars||2;
-    const opts=ALL_LEGS.map(l=>`<option value="${l}"${l===leg?" selected":""}>${l}</option>`).join("");
-    return`<div class="dc${done?" done":""}">
-      <div class="dhdr"><div class="dtxt">Play <span class="num">4</span> matches as</div></div>
-      <select class="dsel" onchange="S.daily.fixed.play4.legend=this.value;save();renderP(S.panel);">${opts}</select>
-      <div class="star-badge">&#11088; ${stars} star${stars!==1?"s":""}</div>
-      <div class="crow" style="margin-top:8px"><button class="cbtn" onclick="fixedCtr('play4',-1)">&#8722;</button><div class="cdisp">${val}</div><span class="ctarg">/ 4</span><button class="cbtn" onclick="fixedCtr('play4',1)">+</button></div>
-      <div class="ddone">&#10003; Completed</div>
-    </div>`;
-  }
-  const idx=slot,sl=S.daily.slots[idx];
-  if(!sl)return"";
-  const tgt=parseInt(sl.n1)||1,val=sl.val||0,done=val>=tgt,pct=Math.min(100,(val/tgt)*100),stars=parseInt(sl.stars)||2;
-  return`<div class="dc${!sl.active?" null-mode":""}${done&&sl.active?" done":""}">
-    <div class="dhdr">
-      <div class="dtxt">${chText({...sl})}</div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
-        <div class="ntog${sl.active?" on":""}" onclick="toggleSlot(${idx})">${sl.active?"●":"○"}</div>
-        <div class="ntog" style="color:var(--b2);border-color:var(--b)" onclick="editDailySlot(${idx})">&#9998;</div>
-      </div>
-    </div>
-    <div class="star-badge">&#11088; ${stars} star${stars!==1?"s":""}</div>
-    <div class="prow">
-      <div class="btrack"><div class="bfill" style="width:${pct}%;background:var(--b)"></div><div class="blbl">${val.toLocaleString()} / ${tgt.toLocaleString()}</div></div>
-      <input class="pinput" type="text" inputmode="numeric" pattern="[0-9]*" value="${val}"
-        onblur="commitDV(${idx},this.value)" onkeydown="if(event.key==='Enter'){this.blur();}" onfocus="this.select()">
-    </div>
-    <div class="ddone">&#10003; Completed</div>
-  </div>`;
-}
-
-function rDaily(){
-  if(!S.dailyEnabled){document.getElementById("dList").innerHTML=`<div class="t5empty" style="color:var(--text3)">Daily tracking disabled.</div>`;return;}
-  const slots=["play2","play4",...S.daily.slots.map((_,i)=>i)];
-  slots.sort((a,b)=>{
-    const da=isDDone(a),db=isDDone(b),aa=isDAct(a),ab=isDAct(b);
-    if(!aa&&ab)return 1;if(aa&&!ab)return -1;
-    if(da&&!db)return 1;if(!da&&db)return -1;
-    return 0;
-  });
-  document.getElementById("dList").innerHTML=slots.map(s=>mkDailyCard(s)).join("");
-}
 function isDDone(s){
   if(s==="play2")return(S.daily.fixed.play2.val||0)>=2;
   if(s==="play4")return(S.daily.fixed.play4.val||0)>=4;
@@ -1555,53 +1234,396 @@ function rWeekSel(){
     btn.className="frame-btn"+(w===S.selectedWeek?" on":"")+(allDone?" done":"");
     btn.title=wkLabel(w);
     btn.innerHTML=`W${week} <span class="frame-n">${total>0?done+"/"+total:"—"}</span>`;
-    btn.onclick=()=>{S.selectedWeek=w;save();rWeekSel();rWeekly();};
+    btn.onclick=()=>{S.selectedWeek=w;save();rWeekSel();};
     sel.appendChild(btn);
   }
 }
 
-function rWeekly(){
-  const wn=S.selectedWeek,{part,week}=getPW(wn),chs=S.weeks[wn]||[];
-  const wd=chs.map(c=>{
-    const tgt=getTarget(c),val=c.type==="reminder"?0:(S.progress[c.id]||0);
-    return{...c,val,tgt,done:c.type!=="reminder"&&val>=tgt,pct:Math.min(100,(val/tgt)*100)};
+/* ================================================================
+   VUE PANELS
+   Spotlight, Legend, Daily, Weekly and All are Vue apps, as the Ledger
+   (Pandora Lunar) moves to Vue. A Vue panel reads store.S and redraws itself
+   when S changes. Settings, the frame row, the rail and the builders are
+   still plain DOM code. vendor/vue.global.prod.js is a pinned copy of Vue
+   3.5.13, so the page sends no request to a CDN.
+================================================================ */
+// Time for the Vue panels. updInfo() sets it every second. wk changes only at a weekly
+// reset, so panels that depend on the current week recompute only then.
+const clock=Vue.reactive({now:Date.now(),wk:getCurWk()});
+
+// Open challenges first (most progress first), then completed ones.
+function orderByProgress(chs){
+  const rows=chs.map(c=>{
+    const tgt=getTarget(c),val=c.type==="reminder"?0:(store.S.progress[c.id]||0);
+    return{c,done:c.type!=="reminder"&&val>=tgt,pct:Math.min(100,(val/tgt)*100)};
   });
-  const inc=wd.filter(c=>!c.done).sort((a,b)=>b.pct-a.pct);
-  const done=wd.filter(c=>c.done);
-  const countable=chs.filter(c=>c.type!=="reminder").length;
-  const dc=done.length,C=119.4,rp=countable>0?(dc/countable)*100:0;
-  document.getElementById("wkTitle").textContent=`S${SEA_NUM}H${part} · Week ${week}`;
-  document.getElementById("wkSub").textContent=`${dc} / ${countable} completed`;
-  document.getElementById("wkRing").style.strokeDashoffset=C-(C*rp/100);
-  document.getElementById("wkPct").textContent=Math.round(rp)+"%";
-  const listEl=document.getElementById("wkList");
-  listEl.innerHTML=(!chs.length?`<div class="empty-week">No challenges yet. Add them below.</div>`:"")+[...inc,...done].map(c=>mkCard(c)).join("");
-  if(chs.length<10)listEl.innerHTML+=`<button class="add-challenge-btn" onclick="openBuilder(${wn})">+ Add Challenge</button>`;
-  else listEl.innerHTML+=`<div style="text-align:center;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text3);padding:6px">Week full (10/10)</div>`;
+  return[...rows.filter(r=>!r.done).sort((a,b)=>b.pct-a.pct),...rows.filter(r=>r.done)];
 }
 
-/* ================================================================
-   PANEL 3: ALL
-================================================================ */
-function rAll(){
-  const cp=getCurPart(),curWn=getCurWk(),partStart=partStartWk(cp);
-  let td=0,ta=0,html="";
-  for(let w=partStart;w<=curWn;w++){
-    const chs=S.weeks[w]||[],{part,week}=getPW(w);
-    const countable=chs.filter(c=>c.type!=="reminder");
-    const done=countable.filter(c=>(S.progress[c.id]||0)>=getTarget(c)).length;
-    td+=done;ta+=countable.length;
-    const wd=chs.map(c=>{const tgt=getTarget(c),val=c.type==="reminder"?0:(S.progress[c.id]||0);return{...c,val,tgt,done:c.type!=="reminder"&&val>=tgt,pct:Math.min(100,(val/tgt)*100)};});
-    const inc=wd.filter(c=>!c.done).sort((a,b)=>b.pct-a.pct);
-    const dn=wd.filter(c=>c.done);
-    html+=`<div class="wgrp"><div class="wghdr">Week ${week} <span>${done}/${countable.length}</span></div>${[...inc,...dn].map(c=>mkCard(c)).join("")}</div>`;
-  }
-  const rp=ta>0?(td/ta)*100:0,C=119.4;
-  document.getElementById("allTitle").textContent=`S${SEA_NUM}H${cp}`;
-  document.getElementById("allSub").textContent=`${td} / ${ta} completed`;
-  document.getElementById("allRing").style.strokeDashoffset=C-(C*rp/100);
-  document.getElementById("allPct").textContent=Math.round(rp)+"%";
-  document.getElementById("allList").innerHTML=html;
+const ChallengeCard={
+  props:{c:Object},
+  setup(props){
+    const{computed,ref,watch}=Vue;
+    const tgt=computed(()=>getTarget(props.c));
+    const val=computed(()=>store.S.progress[props.c.id]||0);
+    const isReminder=computed(()=>props.c.type==="reminder");
+    const done=computed(()=>!isReminder.value&&val.value>=tgt.value);
+    // What the input shows while it has focus. It follows the saved value, and goes back
+    // to it after a commit, so text that is not a number does not stay in the box.
+    const draft=ref(String(val.value));
+    watch(val,v=>{draft.value=String(v);});
+    return{
+      tgt,val,isReminder,done,draft,
+      syn:computed(()=>!done.value&&challengeHasSynergy(props.c)),
+      hint:computed(()=>!done.value&&["play_matches_class","dmg_class","reinforce_hardlight"].includes(props.c.type)?getMainHint(props.c):""),
+      text:computed(()=>chText(props.c)),
+      pct:computed(()=>Math.min(100,(val.value/tgt.value)*100)),
+      stars:computed(()=>parseInt(props.c.stars)||5),
+      commit(){commitP(props.c.id,draft.value);draft.value=String(val.value);},
+      star(){starC(props.c.id,tgt.value);},
+      edit(){editCard(props.c.id);},
+    };
+  },
+  template:`
+    <div :class="['cc',{done,syn}]" :data-id="c.id">
+      <template v-if="isReminder">
+        <div class="ctxt" v-html="text"></div>
+        <div class="syntag" style="color:var(--text3)">Reminder only</div>
+      </template>
+      <template v-else>
+        <div class="ctxt" v-html="text"></div>
+        <div style="position:absolute;top:9px;right:9px;display:flex;gap:4px">
+          <button class="sbtn" style="position:relative;top:auto;right:auto" @click="star">★</button>
+          <button class="sbtn" style="position:relative;top:auto;right:auto;color:var(--b2);border-color:var(--b);font-size:12px" @click="edit">✎</button>
+        </div>
+        <div class="prow">
+          <div class="btrack"><div class="bfill" :style="{width:pct+'%'}"></div><div class="blbl">{{val.toLocaleString()}} / {{tgt.toLocaleString()}}</div></div>
+          <input class="pinput" type="text" inputmode="numeric" pattern="[0-9]*" v-model="draft"
+            @blur="commit" @keydown.enter="$event.target.blur()" @focus="$event.target.select()">
+        </div>
+        <div class="cdone">✓ Completed</div>
+        <div class="star-badge">⭐ {{stars}} stars</div>
+        <div v-if="hint" v-html="hint"></div>
+        <div v-if="syn" class="syntag">⚡ SYNERGY WITH DAILY</div>
+      </template>
+    </div>`
+};
+
+// The Weekly area: the week chosen in the frame row, open challenges first (most progress
+// first), then the completed ones.
+const WeeklyPanel={
+  setup(){
+    const{computed}=Vue;
+    const wn=computed(()=>store.S.selectedWeek);
+    const chs=computed(()=>store.S.weeks[wn.value]||[]);
+    const rows=computed(()=>chs.value.map(c=>{
+      const tgt=getTarget(c),val=c.type==="reminder"?0:(store.S.progress[c.id]||0);
+      return{c,done:c.type!=="reminder"&&val>=tgt,pct:Math.min(100,(val/tgt)*100)};
+    }));
+    const countable=computed(()=>chs.value.filter(c=>c.type!=="reminder").length);
+    const dc=computed(()=>rows.value.filter(r=>r.done).length);
+    const rp=computed(()=>countable.value>0?(dc.value/countable.value)*100:0);
+    return{
+      chs,countable,dc,
+      ordered:computed(()=>[...rows.value.filter(r=>!r.done).sort((a,b)=>b.pct-a.pct),...rows.value.filter(r=>r.done)].map(r=>r.c)),
+      title:computed(()=>{const{part,week}=getPW(wn.value);return`S${SEA_NUM}H${part} · Week ${week}`;}),
+      ring:computed(()=>({strokeDashoffset:119.4-119.4*rp.value/100})),
+      pctLabel:computed(()=>Math.round(rp.value)+"%"),
+      add(){openBuilder(wn.value);},
+    };
+  },
+  template:`
+    <div class="phdr">
+      <div><div class="phdr-title">{{title}}</div><div class="phdr-sub">{{dc}} / {{countable}} completed</div></div>
+      <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" cx="25" cy="25" r="19" stroke-dasharray="119.4" :style="ring"/></svg><div class="rpct">{{pctLabel}}</div></div>
+    </div>
+    <div id="wkList">
+      <div v-if="!chs.length" class="empty-week">No challenges yet. Add them below.</div>
+      <challenge-card v-for="c in ordered" :key="c.id" :c="c"></challenge-card>
+      <button v-if="chs.length<10" class="add-challenge-btn" @click="add">+ Add Challenge</button>
+      <div v-else style="text-align:center;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text3);padding:6px">Week full (10/10)</div>
+    </div>`
+};
+
+// A daily challenge. k is "play2" or "play4" for the two fixed dailies, or the index of a slot.
+const DailyCard={
+  props:{k:[String,Number]},
+  setup(props){
+    const{computed,ref,watch}=Vue;
+    const fx=computed(()=>typeof props.k==="string"?store.S.daily.fixed[props.k]:null);
+    const sl=computed(()=>typeof props.k==="number"?store.S.daily.slots[props.k]:null);
+    const tgt=computed(()=>props.k==="play2"?2:props.k==="play4"?4:(parseInt(sl.value&&sl.value.n1)||1));
+    const val=computed(()=>(fx.value?fx.value.val:sl.value&&sl.value.val)||0);
+    const draft=ref(String(val.value));
+    watch(val,v=>{draft.value=String(v);});
+    return{
+      fx,sl,tgt,val,draft,legs:ALL_LEGS,
+      done:computed(()=>val.value>=tgt.value),
+      stars:computed(()=>fx.value?(fx.value.stars||(props.k==="play2"?1:2)):(parseInt(sl.value&&sl.value.stars)||2)),
+      text:computed(()=>sl.value?chText({...sl.value}):""),
+      pct:computed(()=>Math.min(100,(val.value/tgt.value)*100)),
+      ctr(d){fixedCtr(props.k,d);},
+      setLegend(e){store.S.daily.fixed.play4.legend=e.target.value;save();},
+      toggle(){toggleSlot(props.k);},
+      edit(){editDailySlot(props.k);},
+      commit(){commitDV(props.k,draft.value);draft.value=String(val.value);},
+    };
+  },
+  template:`
+    <div v-if="fx" :class="['dc',{done}]">
+      <div class="dhdr"><div class="dtxt">Play <span class="num">{{tgt}}</span> matches{{k==='play4'?' as':''}}</div></div>
+      <select v-if="k==='play4'" class="dsel" :value="fx.legend||'Fuse'" @change="setLegend">
+        <option v-for="l in legs" :key="l" :value="l">{{l}}</option>
+      </select>
+      <div class="star-badge">⭐ {{stars}} star{{stars!==1?'s':''}}</div>
+      <div class="crow" :style="k==='play4'?'margin-top:8px':''">
+        <button class="cbtn" @click="ctr(-1)">−</button><div class="cdisp">{{val}}</div><span class="ctarg">/ {{tgt}}</span><button class="cbtn" @click="ctr(1)">+</button>
+      </div>
+      <div class="ddone">✓ Completed</div>
+    </div>
+    <div v-else-if="sl" :class="['dc',{'null-mode':!sl.active,done:done&&sl.active}]">
+      <div class="dhdr">
+        <div class="dtxt" v-html="text"></div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <div :class="['ntog',{on:sl.active}]" @click="toggle">{{sl.active?'●':'○'}}</div>
+          <div class="ntog" style="color:var(--b2);border-color:var(--b)" @click="edit">✎</div>
+        </div>
+      </div>
+      <div class="star-badge">⭐ {{stars}} star{{stars!==1?'s':''}}</div>
+      <div class="prow">
+        <div class="btrack"><div class="bfill" :style="{width:pct+'%',background:'var(--b)'}"></div><div class="blbl">{{val.toLocaleString()}} / {{tgt.toLocaleString()}}</div></div>
+        <input class="pinput" type="text" inputmode="numeric" pattern="[0-9]*" v-model="draft"
+          @blur="commit" @keydown.enter="$event.target.blur()" @focus="$event.target.select()">
+      </div>
+      <div class="ddone">✓ Completed</div>
+    </div>`
+};
+
+// The Daily area: active dailies first, completed ones after them, inactive slots last.
+const DailyPanel={
+  setup(){
+    const{computed}=Vue;
+    return{
+      enabled:computed(()=>store.S.dailyEnabled),
+      keys:computed(()=>["play2","play4",...store.S.daily.slots.map((_,i)=>i)].sort((a,b)=>{
+        const da=isDDone(a),db=isDDone(b),aa=isDAct(a),ab=isDAct(b);
+        if(!aa&&ab)return 1;if(aa&&!ab)return -1;
+        if(da&&!db)return 1;if(!da&&db)return -1;
+        return 0;
+      })),
+    };
+  },
+  template:`
+    <div v-if="!enabled" class="t5empty" style="color:var(--text3)">Daily tracking disabled.</div>
+    <template v-else><daily-card v-for="k in keys" :key="k" :k="k"></daily-card></template>`
+};
+
+// The All area: every week of the current split, one group per week.
+const AllPanel={
+  setup(){
+    const{computed}=Vue;
+    const groups=computed(()=>{
+      clock.wk; // recompute at a weekly reset
+      const curWn=getCurWk(),out=[];
+      for(let w=partStartWk(getCurPart());w<=curWn;w++){
+        const chs=store.S.weeks[w]||[],rows=orderByProgress(chs);
+        out.push({w,week:getPW(w).week,done:rows.filter(r=>r.done).length,countable:chs.filter(c=>c.type!=="reminder").length,cards:rows.map(r=>r.c)});
+      }
+      return out;
+    });
+    const td=computed(()=>groups.value.reduce((s,g)=>s+g.done,0));
+    const ta=computed(()=>groups.value.reduce((s,g)=>s+g.countable,0));
+    const rp=computed(()=>ta.value>0?(td.value/ta.value)*100:0);
+    return{
+      groups,td,ta,
+      title:computed(()=>{clock.wk;return`S${SEA_NUM}H${getCurPart()}`;}),
+      ring:computed(()=>({strokeDashoffset:119.4-119.4*rp.value/100})),
+      pctLabel:computed(()=>Math.round(rp.value)+"%"),
+    };
+  },
+  template:`
+    <div class="phdr">
+      <div><div class="phdr-title">{{title}}</div><div class="phdr-sub">{{td}} / {{ta}} completed</div></div>
+      <div class="rw"><svg class="ring" width="50" height="50" viewBox="0 0 50 50"><circle class="rbg" cx="25" cy="25" r="19"/><circle class="rfill" cx="25" cy="25" r="19" stroke-dasharray="119.4" :style="ring"/></svg><div class="rpct">{{pctLabel}}</div></div>
+    </div>
+    <div id="allList">
+      <div v-for="g in groups" :key="g.w" class="wgrp">
+        <div class="wghdr">Week {{g.week}} <span>{{g.done}}/{{g.countable}}</span></div>
+        <challenge-card v-for="c in g.cards" :key="c.id" :c="c"></challenge-card>
+      </div>
+    </div>`
+};
+
+// The Spotlight area: open dailies, the main that covers most open challenges, and the
+// five open challenges worth the most stars.
+const SpotlightPanel={
+  setup(){
+    const{computed}=Vue;
+    const dailies=computed(()=>{
+      const d=store.S.daily,out=[];
+      if(!store.S.dailyEnabled)return out;
+      if((d.fixed.play2.val||0)<2)out.push({k:"play2",stars:d.fixed.play2.stars||1});
+      if((d.fixed.play4.val||0)<4)out.push({k:"play4",stars:d.fixed.play4.stars||2});
+      d.slots.forEach((sl,i)=>{
+        if(!sl.active||sl.type==="reminder")return;
+        if((sl.val||0)<(parseInt(sl.n1)||1))out.push({k:i,stars:parseInt(sl.stars)||2});
+      });
+      return out.sort((a,b)=>b.stars-a.stars).map(x=>x.k);
+    });
+    const scored=computed(()=>{clock.wk;return scoreMains();});
+    const best=computed(()=>{const b=scored.value[0];return b&&b.score>0?b:null;});
+    const focus=computed(()=>{
+      clock.wk;
+      const curWn=getCurWk(),out=[];
+      for(let w=partStartWk(getCurPart());w<=curWn;w++){
+        (store.S.weeks[w]||[]).forEach(c=>{
+          if(c.type==="reminder"||(store.S.progress[c.id]||0)>=getTarget(c))return;
+          out.push({c,w,stars:parseInt(c.stars)||5});
+        });
+      }
+      return out.sort((a,b)=>b.stars!==a.stars?b.stars-a.stars:a.w-b.w).slice(0,5).map(x=>({c:x.c,lbl:wkLabel(x.w)}));
+    });
+    return{
+      dailies,best,focus,
+      withScore:computed(()=>scored.value.filter(r=>r.score>0)),
+      empty:computed(()=>!dailies.value.length&&!best.value&&!focus.value.length),
+      resetIn:computed(()=>fmtCd(nextDailyReset()-clock.now)),
+      why:computed(()=>best.value?best.value.matching.map(m=>m.wlbl).join(", "):""),
+      bestStars:computed(()=>best.value?best.value.matching.reduce((s,m)=>s+(parseInt(m.c.stars)||5),0):0),
+    };
+  },
+  template:`
+    <div v-if="empty" class="t5empty">Everything complete!<br>👑 Well played.</div>
+    <template v-else>
+      <div v-if="dailies.length" class="spotlight-section">
+        <div class="spotlight-section-hdr">⏱ Daily — Resets in {{resetIn}}</div>
+        <daily-card v-for="k in dailies" :key="k" :k="k"></daily-card>
+      </div>
+      <div v-if="best" class="spotlight-section">
+        <div class="spotlight-section-hdr">💥 Best Pick</div>
+        <div class="legend-rec">
+          <div class="legend-rec-name">{{best.leg}}</div>
+          <div class="legend-rec-cls">{{best.cls}}</div>
+          <div class="legend-rec-why">Satisfies <strong>{{best.score}}</strong> incomplete challenge{{best.score!==1?'s':''}} across {{why}}</div>
+          <div class="legend-rec-stars">⭐ {{bestStars}} potential stars</div>
+        </div>
+        <div v-if="withScore.length>1" class="spot-mains">
+          <div v-for="r in withScore" :key="r.leg"
+            :style="{padding:'4px 10px',borderRadius:'3px',background:'var(--bg3)',border:'1px solid '+(r.leg===best.leg?'var(--syn-b)':'var(--border)'),fontFamily:'\\'Barlow Condensed\\',sans-serif',fontSize:'13px',fontWeight:700,color:r.leg===best.leg?'#ffc800':'var(--text2)'}">
+            {{r.leg}} <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text3)">{{r.score}}✕</span>
+          </div>
+        </div>
+      </div>
+      <div v-if="focus.length" class="spotlight-section">
+        <div class="spotlight-section-hdr">🎯 Focus</div>
+        <div v-for="f in focus" :key="f.c.id"><div class="t5lbl">{{f.lbl}}</div><challenge-card :c="f.c"></challenge-card></div>
+      </div>
+    </template>`
+};
+
+// The Legend area: pick one of the mains or today's daily legend, and see the open weekly
+// challenges that legend can do.
+const LegendPanel={
+  setup(){
+    const{computed,ref}=Vue;
+    const picked=ref(null);
+    const dailyLeg=computed(()=>store.S.daily.fixed.play4.legend);
+    const mainsLegs=computed(()=>Object.values(store.S.mains));
+    const allLegs=computed(()=>[...new Set([dailyLeg.value,...mainsLegs.value])]);
+    const scoreMap=computed(()=>{
+      clock.wk;
+      const m={};
+      scoreMains().forEach(r=>{m[r.leg]=r;});
+      const dl=dailyLeg.value;
+      if(!m[dl]){
+        let score=0,stars=0;
+        for(let w=partStartWk(getCurPart());w<=getCurWk();w++){
+          (store.S.weeks[w]||[]).forEach(c=>{
+            if(c.type==="reminder"||(store.S.progress[c.id]||0)>=getTarget(c))return;
+            if(legSatisfies(dl,c)){score++;stars+=parseInt(c.stars)||5;}
+          });
+        }
+        m[dl]={leg:dl,cls:LEG_CLASS[dl]||"",score,stars};
+      }
+      return m;
+    });
+    // Default: the Spotlight's Best Pick, else today's daily legend.
+    const sel=computed(()=>{
+      if(allLegs.value.includes(picked.value))return picked.value;
+      clock.wk;
+      const best=scoreMains()[0];
+      return best&&best.score>0?best.leg:(dailyLeg.value||"Fuse");
+    });
+    // Only open challenges are listed, so a group's done count is always 0, as before.
+    const groups=computed(()=>{
+      clock.wk;
+      const out=[];
+      for(let w=partStartWk(getCurPart());w<=getCurWk();w++){
+        const matching=(store.S.weeks[w]||[]).filter(c=>c.type!=="reminder"&&legSatisfies(sel.value,c)&&(store.S.progress[c.id]||0)<getTarget(c));
+        if(!matching.length)continue;
+        const rows=orderByProgress(matching);
+        out.push({w,week:getPW(w).week,done:rows.filter(r=>r.done).length,total:matching.length,cards:rows.map(r=>r.c)});
+      }
+      return out;
+    });
+    const dailyKeys=computed(()=>{
+      if(sel.value!==dailyLeg.value)return[];
+      const d=store.S.daily,out=[];
+      if((d.fixed.play4.val||0)<4)out.push("play4");
+      if((d.fixed.play2.val||0)<2)out.push("play2");
+      d.slots.forEach((sl,i)=>{if(sl.active&&!isDDone(i))out.push(i);});
+      return out;
+    });
+    return{
+      allLegs,dailyLeg,scoreMap,sel,groups,dailyKeys,
+      totalCount:computed(()=>groups.value.reduce((s,g)=>s+g.total,0)),
+      doneCount:computed(()=>groups.value.reduce((s,g)=>s+g.done,0)),
+      cls:leg=>LEG_CLASS[leg]||"",
+      crown:leg=>leg===dailyLeg.value&&mainsLegs.value.includes(leg),
+      pick(leg){picked.value=leg;},
+      pickStyle(leg){
+        const isSel=leg===sel.value,isDaily=leg===dailyLeg.value;
+        return{cursor:"pointer",padding:"6px 10px",borderRadius:"4px",flexShrink:0,textAlign:"center",transition:"all 0.15s",
+          background:isSel?"var(--bg2)":"var(--bg3)",
+          border:isSel?"2px solid var(--a2)":isDaily?"2px solid var(--b2)":"1px solid var(--border)",
+          boxShadow:isDaily&&mainsLegs.value.includes(leg)?"0 0 12px var(--syn-b)":"none"};
+      },
+      nameColor(leg){return leg===sel.value?"var(--a2)":leg===dailyLeg.value?"var(--b2)":"var(--text2)";},
+    };
+  },
+  template:`
+    <div id="legendPickerRow" style="display:flex;flex-wrap:nowrap;gap:8px;padding:0 0 14px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;">
+      <div v-for="leg in allLegs" :key="leg" :style="pickStyle(leg)" @click="pick(leg)">
+        <div :style="{fontFamily:'\\'Barlow Condensed\\',sans-serif',fontSize:'14px',fontWeight:800,textTransform:'uppercase',letterSpacing:'0.04em',whiteSpace:'nowrap',color:nameColor(leg)}">{{crown(leg)?'👑 ':''}}{{leg}}</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3);margin-top:1px">{{cls(leg)}}</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--star);margin-top:1px">⭐ {{scoreMap[leg]?scoreMap[leg].stars:0}}</div>
+      </div>
+    </div>
+    <div style="padding:4px 0 12px">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;text-transform:uppercase;color:var(--a2)">{{sel}}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text2);margin-top:2px">{{cls(sel)}}{{sel===dailyLeg?" · TODAY'S DAILY":""}}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text2);margin-top:4px">{{doneCount}}/{{totalCount}} weekly challenges · ⭐ {{scoreMap[sel]?scoreMap[sel].stars:0}} potential stars</div>
+    </div>
+    <div v-if="dailyKeys.length" class="spotlight-section">
+      <div class="spotlight-section-hdr">⏱ Daily</div>
+      <daily-card v-for="k in dailyKeys" :key="k" :k="k"></daily-card>
+    </div>
+    <div v-for="g in groups" :key="g.w" class="wgrp">
+      <div class="wghdr">Week {{g.week}} <span>{{g.done}}/{{g.total}}</span></div>
+      <challenge-card v-for="c in g.cards" :key="c.id" :c="c"></challenge-card>
+    </div>
+    <div v-if="!groups.length" class="t5empty" style="color:var(--text3)">No weekly challenges for {{sel}} this part.</div>`
+};
+
+function vueApp(comp,el){
+  Vue.createApp(comp).component("challenge-card",ChallengeCard).component("daily-card",DailyCard).mount(el);
+}
+function mountVuePanels(){
+  vueApp(SpotlightPanel,"#spotlightApp");
+  vueApp(LegendPanel,"#legendApp");
+  vueApp(DailyPanel,"#dList");
+  vueApp(WeeklyPanel,"#weeklyApp");
+  vueApp(AllPanel,"#allApp");
 }
 
 /* ================================================================
@@ -1641,7 +1663,8 @@ function setPanel(n){
   window.scrollTo(0,0);
 }
 function renderP(n){
-  if(n===0)rSpotlight();if(n===1)rLegend();if(n===2)rDaily();if(n===3){rWeekSel();rWeekly();}if(n===4)rAll();if(n===5)rSettings();
+  // Spotlight, Legend, Daily, Weekly and All are Vue apps and redraw themselves.
+  if(n===3)rWeekSel();if(n===5)rSettings();
   renderFrames(n);updRailCounts();
 }
 // Weekly draws its own frames in rWeekSel(); every other area without frames clears the row.
@@ -1792,7 +1815,7 @@ function commitDV(idx,val){
   save();setTimeout(()=>renderP(S.panel),50);
 }
 function addStat(b,delta){if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));if(delta>0&&typeof S.stats[b]==="number")S.stats[b]+=delta;}
-function toggleSlot(idx){S.daily.slots[idx].active=!S.daily.slots[idx].active;save();rDaily();}
+function toggleSlot(idx){S.daily.slots[idx].active=!S.daily.slots[idx].active;save();updRailCounts();}
 
 /* ================================================================
    CHALLENGE BUILDER
@@ -1991,7 +2014,7 @@ function saveDailySlot(){
   sl.mode=document.getElementById("dbMode")?.value||"";
   sl.stars=parseInt(document.getElementById("dbStars").value)||2;
   sl.reminder=t==="reminder"?document.getElementById("dbReminder").value:null;
-  sl.val=0;save();closeOv("ovDailyBuilder");rDaily();
+  sl.val=0;save();closeOv("ovDailyBuilder");updRailCounts();
 }
 
 /* ================================================================
@@ -2043,7 +2066,7 @@ function importData(ev){
   r.onload=e=>{
     try{
       const data=JSON.parse(e.target.result);
-      S={...DS,...data};if(!S.daily)S.daily=DS.daily;if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));if(!S.weeks)S.weeks={};if(!S.mains)S.mains={...DS.mains};
+      setState({...DS,...data});if(!S.daily)S.daily=DS.daily;if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));if(!S.weeks)S.weeks={};if(!S.mains)S.mains={...DS.mains};
       S.season=data.season||30;archiveSeason();
       save();setTheme(S.theme||"poetic");applyRailCollapsed();setPanel(0);alert("Imported successfully.");
     }catch{alert("Invalid save file.");}
@@ -2111,6 +2134,7 @@ function updInfo(){
   const now=new Date(),wn=getCurWk(),{part,week}=getPW(wn);
   const dl=Math.floor((SEA_END-now)/86400000); // whole days, like the in-game timer
   const nx=SEASONS.find(s=>new Date(s.start)>now);
+  clock.now=now.getTime();if(clock.wk!==wn)clock.wk=wn;
   document.getElementById("iSeason").textContent=wkLabel(wn);
   document.getElementById("hdrSub").textContent=`Season ${SEA_NUM} ${SEA_NAME}`;
   const weeklyMs=nextWeeklyReset()-now;
@@ -2192,7 +2216,7 @@ function checkFactoryInput(val){
 function executeFactoryReset(){
   // Wipe everything — full factory reset
   localStorage.removeItem("cm5");
-  S=JSON.parse(JSON.stringify(DS));
+  setState(JSON.parse(JSON.stringify(DS)));
   S.season=SEA_NUM;
   save();
   closeOv("ovFactory");
@@ -2206,7 +2230,7 @@ function executeFactoryReset(){
 function init(){
   load();setTheme(S.theme||"poetic");
   if(!S.selectedWeek)S.selectedWeek=getCurWk();
-  buildRail();buildFootDots();applyRailCollapsed();measureShell();
+  buildRail();buildFootDots();applyRailCollapsed();measureShell();mountVuePanels();
   if(document.fonts)document.fonts.ready.then(measureShell);
   setPanel(S.panel||0);updInfo();chkResets();
   setInterval(()=>{updInfo();chkResets();footTick();},1000);
