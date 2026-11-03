@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Challenge Memoria">
 <meta name="theme-color" content="#12151d">
-<title>Challenge Memoria · Apex v0.15.1</title>
+<title>Challenge Memoria · Apex v0.15.2</title>
 <style>
 /* ==========================================================================
    Shell tokens, from Pandora Lunar's style.css (commit 739a743 and later).
@@ -532,7 +532,7 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
            Caps: PATCH stops at 9, so a patch after x.y.9 is x.(y+1).0.
            MINOR stops at 99, so the bump after x.99.z is (x+1).0.0.
            The commit and the update time come from version.json, which the publish step writes. -->
-      <div class="rail-ver"><span id="app-version" data-version="0.15.1">v0.15.1</span><span id="app-build"></span></div>
+      <div class="rail-ver"><span id="app-version" data-version="0.15.2">v0.15.2</span><span id="app-build"></span></div>
     </div>
   </nav>
 
@@ -911,8 +911,9 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
 ================================================================ */
 // Apex weekly and season resets follow 10:00 Pacific, so they move in UTC with US DST:
 //   17:00 UTC while PDT is in effect, 18:00 UTC while PST is in effect.
-// Week arithmetic below is fixed 7-day steps from `start`, so a season that crosses a DST
-// change (S32: 14 March 2027) will be an hour off after it until this is handled.
+// Weeks are counted in Pacific calendar days, each starting at 10:00 Pacific (weekStart()), so a
+// season that crosses a DST change (S32: 14 March 2027) keeps the game's reset hour.
+const WK_RST_PT = 10;
 // The tracker uses the last season whose start has passed, and archives the previous
 // season's weekly challenges when it switches. Add the next season here when it is announced.
 //   p1Wks: weeks in Part 1 (the game's Split 1). Weeks after that are Part 2.
@@ -928,7 +929,7 @@ function pickSeason(){
   const s=SEASONS[i],nx=SEASONS[i+1];
   SEA_NUM=s.num;SEA_NAME=s.name;SEA_START=new Date(s.start);SEA_WKS=s.wks;P1_WKS=s.p1Wks;
   // The next season's start is the exact end; the week count is only an estimate.
-  SEA_END=nx?new Date(nx.start):new Date(SEA_START.getTime()+SEA_WKS*7*24*3600*1000);
+  SEA_END=nx?new Date(nx.start):weekStart(SEA_WKS+1);
 }
 pickSeason();
 // The daily reset is 03:00 Pacific: 10:00 UTC in summer (confirmed), 11:00 UTC in winter
@@ -1092,13 +1093,25 @@ function archiveSeason(){
 /* ================================================================
    TIME
 ================================================================ */
-function getCurWk(){const ms=new Date()-SEA_START;if(ms<0)return 1;return Math.min(Math.floor(ms/(7*24*3600*1000))+1,SEA_WKS);}
+// Start of season week n (week 1 = the season start): the start's date plus 7(n-1) days, at
+// 10:00 Pacific. The season starts at 10:00 Pacific, so its UTC date is its Pacific date. The
+// offset is read at 12:00 UTC; a DST change happens on a Sunday, never on a reset day.
+function weekStart(n){
+  const day=Date.UTC(SEA_START.getUTCFullYear(),SEA_START.getUTCMonth(),SEA_START.getUTCDate()+7*(n-1));
+  return new Date(day+(WK_RST_PT+ptOffsetH(new Date(day+12*3600000)))*3600000);
+}
+function getCurWk(){
+  const now=new Date();
+  let n=1;
+  while(n<SEA_WKS&&weekStart(n+1)<=now)n++;
+  return n;
+}
 function getPW(wn){return wn<=P1_WKS?{part:1,week:wn}:{part:2,week:wn-P1_WKS};}
 function getCurPart(){return getPW(getCurWk()).part;}
 function partStartWk(part){return part===1?1:P1_WKS+1;}
 // Week label in the Windows-release style the community uses: S31H1W1 ... S31H1W6, S31H2W1.
 function wkLabel(wn,sea=SEA_NUM,p1=P1_WKS){const h=wn<=p1?1:2;return`S${sea}H${h}W${h===1?wn:wn-p1}`;}
-function nextWeeklyReset(){return new Date(Math.min(SEA_START.getTime()+getCurWk()*7*24*3600*1000,SEA_END.getTime()));}
+function nextWeeklyReset(){return new Date(Math.min(weekStart(getCurWk()+1).getTime(),SEA_END.getTime()));}
 function nextDailyReset(){
   const now=new Date();
   // 03:00 Pacific falls on the same UTC date. The offset is read at 12:00 UTC, after a DST
