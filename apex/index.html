@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Challenge Memoria">
 <meta name="theme-color" content="#12151d">
-<title>Challenge Memoria · Apex v0.15.3</title>
+<title>Challenge Memoria · Apex v0.16.0</title>
 <style>
 /* ==========================================================================
    Shell tokens, from Pandora Lunar's style.css (commit 739a743 and later).
@@ -543,7 +543,7 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
            Caps: PATCH stops at 9, so a patch after x.y.9 is x.(y+1).0.
            MINOR stops at 99, so the bump after x.99.z is (x+1).0.0.
            The commit and the update time come from version.json, which the publish step writes. -->
-      <div class="rail-ver"><span id="app-version" data-version="0.15.3">v0.15.3</span><span id="app-build"></span></div>
+      <div class="rail-ver"><span id="app-version" data-version="0.16.0">v0.16.0</span><span id="app-build"></span></div>
     </div>
   </nav>
 
@@ -694,6 +694,7 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
           <option value="restore_health">Restore X health</option>
           <option value="restore_shields">Restore X shields</option>
           <option value="open_bins">Open X supply bins</option>
+          <option value="loot_stronghold">Loot X items from Strongholds</option>
           <option value="loot_epic">Loot X Epic (purple) items</option>
           <option value="loot_legendary">Loot X Legendary items</option>
           <option value="loot_care_pkg">Loot X neutral care packages</option>
@@ -832,6 +833,7 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
           <option value="restore_health">Restore X health</option>
           <option value="restore_shields">Restore X shields</option>
           <option value="open_bins">Open X supply bins</option>
+          <option value="loot_stronghold">Loot X items from Strongholds</option>
           <option value="loot_epic">Loot X Epic (purple) items</option>
           <option value="loot_legendary">Loot X Legendary items</option>
           <option value="loot_care_pkg">Loot X neutral care packages</option>
@@ -1003,6 +1005,7 @@ function chText(c){
     case"restore_health":       return`${mb}Restore ${n1} health`;
     case"restore_shields":      return`${mb}Restore ${n1} shields`;
     case"open_bins":            return`${mb}Open ${n1} supply bins`;
+    case"loot_stronghold":      return`${mb}Loot ${n1} items from <span class="tag">Strongholds</span>`;
     case"loot_epic":            return`${mb}Loot ${n1} <span class="tag">Epic (purple)</span> items`;
     case"loot_legendary":       return`${mb}Loot ${n1} <span class="tag">Legendary</span> items`;
     case"loot_care_pkg":        return`${mb}Loot ${n1} neutral care package(s)`;
@@ -1165,7 +1168,7 @@ function legSatisfies(leg,c){
       "kills","kills_assists","kills_single","kills_same_legend","kills_assists_weapon",
       "headshots","knockdowns","finishing_move","top_finish","top_finish_events",
       "survive_rings","win","outlive","ranked_matches","revive",
-      "restore_health","restore_shields","open_bins","loot_epic","loot_legendary",
+      "restore_health","restore_shields","open_bins","loot_stronghold","loot_epic","loot_legendary",
       "loot_care_pkg","craft_replicator","obtain_arsenal","equip_attachment",
       "thank_squadmate","mantle_boost","break_hardlight"].includes(c.type)){
     return true;
@@ -1886,12 +1889,12 @@ function toggleSlot(idx){S.daily.slots[idx].active=!S.daily.slots[idx].active;sa
    CHALLENGE BUILDER
 ================================================================ */
 const BR_ONLY_TYPES=["obtain_arsenal","survive_rings","reinforce_hardlight","break_hardlight",
-  "craft_replicator","top_finish","win","top_finish_events","loot_care_pkg","revive","open_bins","outlive"];
+  "craft_replicator","top_finish","win","top_finish_events","loot_care_pkg","revive","open_bins","loot_stronghold","outlive"];
 const DUAL_CLASS=["play_matches_class","dmg_class"];
 const SINGLE_CLASS=["reinforce_hardlight"];
 const NEEDS_WPN=["dmg_weapon","kills_assists_weapon"];
 const NEEDS_N2=["top_finish","top_finish_events"];
-const NEEDS_MODE=["play_matches","play_matches_class","dmg_general","dmg_class","kills","kills_assists","kills_assists_weapon","top_finish","top_finish_events","survive_rings","win","open_bins","loot_care_pkg","finishing_move","ranked_matches","outlive","dmg_single","loot_epic","loot_legendary","break_hardlight","obtain_arsenal","craft_replicator"];
+const NEEDS_MODE=["play_matches","play_matches_class","dmg_general","dmg_class","kills","kills_assists","kills_assists_weapon","top_finish","top_finish_events","survive_rings","win","open_bins","loot_stronghold","loot_care_pkg","finishing_move","ranked_matches","outlive","dmg_single","loot_epic","loot_legendary","break_hardlight","obtain_arsenal","craft_replicator"];
 
 function openBuilder(wn,editId){
   _bWeek=wn;_bEditId=editId||null;
@@ -2015,13 +2018,13 @@ function onDailyBuilderChange(){
   const t=document.getElementById("dbType").value;
   const show=(id,v)=>document.getElementById(id).style.display=v?"":"none";
   const DB_BR_ONLY=["obtain_arsenal","survive_rings","reinforce_hardlight","break_hardlight",
-    "craft_replicator","top_finish","win","top_finish_events","loot_care_pkg","revive","open_bins","outlive"];
+    "craft_replicator","top_finish","win","top_finish_events","loot_care_pkg","revive","open_bins","loot_stronghold","outlive"];
   const DB_DUAL_CLASS=["play_matches_class","dmg_class"];
   const DB_SINGLE_CLASS=["reinforce_hardlight"];
   const DB_NEEDS_WPN=["dmg_weapon","kills_assists_weapon"];
   const DB_NEEDS_N2=["top_finish","top_finish_events"];
   const DB_NEEDS_MODE=["play_matches","play_matches_class","dmg_general","dmg_class","kills","kills_assists",
-    "kills_assists_weapon","top_finish","top_finish_events","survive_rings","win","open_bins","loot_care_pkg",
+    "kills_assists_weapon","top_finish","top_finish_events","survive_rings","win","open_bins","loot_stronghold","loot_care_pkg",
     "finishing_move","ranked_matches","outlive","dmg_single","loot_epic","loot_legendary","break_hardlight",
     "obtain_arsenal","craft_replicator"];
   const isBR=DB_BR_ONLY.includes(t);
