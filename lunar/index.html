@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Adventurer's Ledger &mdash; Pandora Lunar</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ================= site bar =================
+     The site's own places. Studio and the Ledger are live today; the two
+     challenge pages are not built yet. The theme applies to every page. -->
+<header class="sitebar">
+  <button type="button" class="mobile-menu-toggle" id="mobile-menu-toggle"
+    aria-label="Open navigation" aria-expanded="false" aria-controls="rail"
+    onclick="toggleMobileRail()">&#9776;</button>
+  <span class="domain"><b>Adventurer's Ledger</b> &middot; Pandora Lunar</span>
+  <nav aria-label="Site">
+    <a href="https://legendmemoria.org/" target="_blank" rel="noopener" title="legendmemoria.org">Studio</a><a href="./" class="on" title="This page">Adventurer's Ledger</a><span class="soon" title="Not built yet">Lunatic Pandora</span><span class="soon" title="Not built yet">Challenges</span>
+  </nav>
+  <div class="who">
+    <select id="theme-sel" aria-label="Theme" onchange="setTheme(this.value)">
+      <option value="poetic">Poetic</option><option value="midnight">Midnight</option><option value="daylight">Daylight</option>
+    </select>
+  </div>
+</header>
+<button type="button" class="rail-backdrop" id="rail-backdrop"
+  aria-label="Close navigation" onclick="setMobileRailOpen(false)" hidden></button>
+
+<div class="shell">
+
+  <!-- ================= rail =================
+       Navigation on the left, pinned. It never scrolls away, so every area
+       is one click from anywhere on the page. -->
+  <nav class="rail" id="rail">
+    <div class="rail-scroll">
+      <div class="switcher" id="switcher"></div>
+      <div class="cap-note" id="cap-note" style="display:none">Up to 3 characters per browser. Need more? Use a second browser (e.g. Firefox alongside Edge) &mdash; each keeps its own separate storage.</div>
+      <nav class="areas" id="rail-nav" aria-label="Areas"></nav>
+    </div>
+
+    <!-- The footer countdowns, the event slides and the dots: FootSlot in app.js. -->
+    <div class="rail-foot">
+      <div class="foot-app" id="foot-app"></div>
+
+      <div class="rail-imports">
+        <button type="button" onclick="toggleTmImportPanel()" title="Paste a Tales of Milestones export">Import from Tales of Milestones</button>
+      </div>
+
+      <div class="rail-icons">
+        <button id="ico-tools" title="Backup and import" onclick="toggleTools()">&#11123;</button>
+        <button id="instructions-toggle-btn" title="How this works" onclick="toggleInstructions()">?</button>
+        <!-- A plain link, no Ko-fi widget script: the Ledger promises that data
+             never leaves the browser, and a third-party script would break that. -->
+        <a class="rail-kofi" href="https://ko-fi.com/legendsofthegame" target="_blank" rel="noopener" title="Support on Ko-fi">&#9749;</a>
+        <button class="spacer" id="ico-collapse" title="Collapse the rail" onclick="toggleRail()">&lsaquo;</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ================= pane ================= -->
+  <main class="pane">
+    <nav class="route" id="route" aria-label="Expansions"></nav>
+    <div class="pane-top">
+      <div class="frame-row" id="frame-row" role="tablist"></div>
+    </div>
+
+    <div class="pane-body">
+
+      <div class="instructions-panel" id="instructions-panel" style="display:none">
+        <h2>How this works</h2>
+        <p>This tracker is self-serve. You add your own characters. The tracker saves your data in this browser, on this device. It sends nothing to a server. No other Free Company member can read it.</p>
+
+        <h3>The rail</h3>
+        <p>The rail is the column on the left. The active character is at the top of the rail. Below the character are seven areas: Daily, Story, Jobs, Duties, Collections, World and Elsewhere. Under Daily, the Weekly and Seasonal rows open those parts of the same area. A percentage counts only routines that you have ticked in the last 30 game days. A game day starts at the daily reset, 15:00 UTC.</p>
+        <p>Click an area to open it. Each area has frames. The frame buttons are in the row at the top of the pane. Click a frame button to change what the pane shows.</p>
+        <p>The bar below an area name shows a percentage. The bar shows only when the tracker has the data for it.</p>
+        <p>The rail and the frame buttons stay on the screen. Only the pane scrolls.</p>
+
+        <h3>The route line</h3>
+        <p>The route line is above the frame buttons. It has one station for each expansion. The line after a station fills to the percentage of quests done in that expansion. The percentages are the same as the Overview tab in Tales of Milestones. The data comes from a Tales of Milestones import.</p>
+        <p>A station is complete when your MSQ progress reaches the next expansion.</p>
+        <p>Click a station to show that expansion only in Duties, Collections and World. Click the station again, or click <code>Show all expansions</code>, to show all expansions.</p>
+        <p>Click <code>&lsaquo;</code> at the bottom of the rail to make the rail narrow. Click it again to make the rail wide.</p>
+
+        <h3>Characters</h3>
+        <p>Open the character list at the top of the rail. Select <code>+ Add a character</code>. Type a name. Then complete the parts that apply to you. No field is mandatory.</p>
+        <p>To change character, select the character in the same list.</p>
+        <p>Each browser holds a maximum of 3 characters. To track more than 3 characters, use a second browser. Each browser keeps its own storage. The two sets of data stay separate.</p>
+        <p>To remove a character, select the character in the list. Then click <code>Remove character</code> at the top of the pane.</p>
+
+        <h3>Backups</h3>
+        <p>Click the backup icon at the bottom of the rail. The backup tools open at the top of the pane.</p>
+        <p>Click <code>Download backup</code> to save a <code>.json</code> file with all of your data. Click <code>Restore from file</code> to load a backup file into the tracker. Use a backup to move to a new device, or to recover data.</p>
+        <p><strong>WARNING:</strong> If you clear the site data of your browser, the browser erases your tracker. Make a backup first.</p>
+
+        <h3>Routines</h3>
+        <p>A routine is a task that repeats on a reset schedule. The tracker clears each routine at its reset time. All reset times are UTC.</p>
+        <p>The Routines section has five frames. Daily and Weekly clear on the game's reset clock. Challenge Log holds the 13 challenge categories. Cooldowns holds the tasks that run from your own last click, not from a shared clock. Last completed lists when you last did each one.</p>
+        <p>Click <code>+ Add routine</code> to add your own routine.</p>
+
+        <h3>MSQ progress</h3>
+        <p>The <code>requires</code> value hides a routine until you reach a point in the main scenario.</p>
+        <p>Type your MSQ progress in the box next to your character's name. Use a patch number, for example <code>5.3</code>. If this box is empty, the tracker hides no routine.</p>
+        <p>Each seeded routine has a <code>requires</code> value. The value comes from the main scenario quest that unlocks the content. It does not come from the patch that released the content. Example: Faux Hollows released in patch 5.3, but it needs the end of Shadowbringers. Therefore it reads <code>5.0</code>.</p>
+        <p>You can change or clear any <code>requires</code> value. The tracker never overwrites your value.</p>
+        <p>The note below each list gives the number of hidden routines. Click <code>Show them</code> to show all routines.</p>
+
+        <h3>Import from Tales of Milestones</h3>
+        <p>In Tales of Milestones, click <code>Copy everything</code>, or type <code>/tm full</code>. Click <code>Import from Tales of Milestones</code> at the bottom of the rail. Paste the export into the box. Make sure that the character is correct, then click <code>Apply merge</code>.</p>
+        <p>The Tales of Milestones plugin sends what you unlocked, quest by quest. After an import, the tracker uses that data and ignores the patch number.</p>
+        <p>This is more exact, and it applies in both directions. The end of Stormblood no longer shows Eureka content if you never entered Eureka.</p>
+        <p>An import also hides a routine when you have not unlocked the job it needs. The Masked Carnivale needs Blue Mage. Grand Company turn-ins need a crafting job or a gathering job. This test uses the unlock only. A low level hides nothing.</p>
+
+        <h3>Cosmic tools</h3>
+        <p>The Cosmic section shows the research data for each crafting class and gathering class. The data comes from a Tales of Milestones import only. You cannot type it in.</p>
+        <p>Tales of Milestones reads the data only when your character is in a Cosmic Exploration zone. The time at the top of the section is the time of that reading. It can be earlier than the export.</p>
+        <p>For each class, the section shows the tool, its item level, and the next stage. For each data type, it shows the current data, the data that the next upgrade needs, and the shortfall. The data values are cumulative.</p>
+        <p>Each stage has a storage limit for each data type. When the current data is at the limit, the game does not keep more data of that type until you upgrade the tool.</p>
+        <p>A class with no research data does not appear in the export. The section lists these classes at the top.</p>
+        <p>The Red Alerts frame is a reference table. For each zone and weather, it shows each variant, its two regions, and the critical mission for each class. Select a class to show only the variants that include that class.</p>
+        <p>The Red Alerts frame shows all four zones. To show one zone only, click the frame button with the name of that zone: Sinus Ardorum, Phaenna, Oizys or Auxesia.</p>
+        <p>The table does not show which Red Alert occurs next. Red Alerts have no fixed schedule, and each world and zone has its own.</p>
+
+        <h3>The Hunt</h3>
+        <p>The Hunt issues six mark bills each day and six elite mark bills each week, one for each expansion.</p>
+        <p>The tracker shows each set as one row with six ticks. A tick is grey when your MSQ progress does not reach that expansion.</p>
+        <p>To show one row for each expansion instead, turn on <code>Give each expansion its own row</code> below the Hunt rows. This setting applies to Daily and Weekly together.</p>
+
+        <h3>Job levels</h3>
+        <p>The tracker hides a job at level 0. Most players use a few of the 34 jobs.</p>
+        <p>The note below the list gives the number of hidden jobs. Click <code>Show them</code> to show all jobs. Use this when you unlock a new job and need a field to type in.</p>
+        <p>A new character has every job at 0. The list therefore starts hidden.</p>
+
+        <h3>Ocean Fishing</h3>
+        <p>The Ocean Fishing panel is at the bottom of the rail. It is global. It shows the same time for every character.</p>
+        <p>Registration opens for 15 minutes every 2 hours, at each even UTC hour.</p>
+
+        <h3>Evercold</h3>
+        <p>The panel at the bottom of the rail also counts down to the 8.0 expansion.</p>
+        <p>The countdown ends at the public release on 23 February 2027. Square Enix confirmed this date. Early access starts on 19 February 2027, but the countdown does not use that date.</p>
+        <p>Square Enix does not give a time for the public release. The countdown uses 12:00 UTC. This time is an estimate.</p>
+
+        <h3>Themes</h3>
+        <p>The tracker has three themes: Poetic, Midnight and Daylight. Select a theme in the list at the right of the bar at the top of the page. Each theme changes the colours and the corner shapes.</p>
+
+        <h3>Events</h3>
+        <p>Today &rarr; Events lists the events that are running and the events that the Lodestone has announced. The list comes from the same feed as Tales of Milestones&rsquo;s Active Events, and the Ledger checks the feed every 6 hours. The panel at the bottom of the rail shows one countdown for each running event. When an event ends, it goes off both lists.</p>
+
+        <h3>Elsewhere</h3>
+        <p>The Elsewhere area has links to other sites for work that the tracker does not do. Each link opens in a new tab.</p>
+      </div>
+
+      <div id="tools-panel" style="display:none">
+        <div class="backup-bar" style="justify-content:flex-start;margin-top:0">
+          <button class="edit-btn" onclick="exportData()">Download backup</button>
+          <button class="edit-btn" onclick="document.getElementById('import-file').click()">Restore from file</button>
+          <input type="file" id="import-file" accept="application/json,.json" style="display:none" onchange="importData(this)">
+          <button class="edit-btn" onclick="toggleTmImportPanel()">Import from Tales of Milestones</button>
+        </div>
+
+      </div>
+
+      <div id="pages"></div>
+
+      <div class="save-note"><span class="dot"></span><span id="save-status">Saved locally</span></div>
+      <div class="copyright">&copy; Legends of the Game</div>
+      <div class="build-stamp">Last updated 03/11/2026 @ 00:24 UTC</div>
+
+    </div>
+  </main>
+
+</div>
+
+<!-- The Time Memoria import opens over the page, so the area on screen stays
+     where it was. The ids are the same as the old inline panel. -->
+<dialog class="tm-dlg" id="tm-import-panel" aria-labelledby="tm-dlg-title">
+  <h2 id="tm-dlg-title">Import from Tales of Milestones</h2>
+  <p class="hint">In the plugin, press <b>Copy everything</b> (or type <code>/tm full</code>), then paste here. This browser reads the export. Nothing goes to a server.</p>
+  <textarea class="note-area" id="tm-import-text" placeholder="Paste here (Ctrl+V)" spellcheck="false" oninput="onTmPasteInput()"></textarea>
+  <div class="tm-import-error" id="tm-import-error" role="status"></div>
+  <div id="tm-import-summary"></div>
+  <div class="tm-dlg-acts">
+    <button type="button" class="edit-btn" onclick="tmPasteFromClipboard()">Paste from clipboard</button>
+    <button type="button" class="edit-btn" onclick="toggleTmImportPanel()">Close</button>
+  </div>
+</dialog>
+
+<script src="jobquest-items.js"></script>
+<script src="tm-export-tables.js"></script>
+<!-- pandora-lunar's workflows refresh these two files; load them from its Pages site so this copy stays current. -->
+<script src="https://legendsofthegame.github.io/pandora-lunar/collection-lists.js"></script>
+<script src="relic-stages.js"></script>
+<script src="https://legendsofthegame.github.io/pandora-lunar/events-feed.js"></script>
+<script src="vendor/vue.global.prod.js"></script>
+<script src="ocean.js"></script>
+<script src="relics-vue.js"></script>
+<script src="journey.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

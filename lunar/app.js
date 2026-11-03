@@ -1,0 +1,6174 @@
+/* Adventurer's Ledger — Pandora Lunar
+   Self-serve, per-browser FFXIV progression tracker. Nothing here talks to a server —
+   everything lives in this browser's localStorage. Up to 3 characters per browser;
+   more than that, use a second browser (separate storage origin). */
+
+const COMBAT_JOBS = [
+  ["Paladin","Tank"],["Warrior","Tank"],["Dark Knight","Tank"],["Gunbreaker","Tank"],
+  ["White Mage","Healer"],["Scholar","Healer"],["Astrologian","Healer"],["Sage","Healer"],
+  ["Monk","Melee"],["Dragoon","Melee"],["Ninja","Melee"],["Samurai","Melee"],["Reaper","Melee"],["Viper","Melee"],
+  ["Bard","Phys R"],["Machinist","Phys R"],["Dancer","Phys R"],
+  ["Black Mage","Mag R"],["Summoner","Mag R"],["Red Mage","Mag R"],["Pictomancer","Mag R"],
+  ["Blue Mage","Limited",80],["Beastmaster","Limited",50]
+];
+const CRAFT_JOBS = ["Carpenter","Blacksmith","Armorer","Goldsmith","Leatherworker","Weaver","Alchemist","Culinarian"];
+const GATHER_JOBS = ["Miner","Botanist","Fisher"];
+
+// Physical Data Center -> Logical Data Center -> World. Structure only — deliberately no
+// Standard/Preferred/Preferred+ creation-congestion tags, since those are live status that
+// shifts as worlds fill up, not a fixed fact about a world. Baking them in would go stale
+// within weeks; the PDC/LDC/world hierarchy itself is what's actually stable.
+const SERVER_DATA = {
+  "North America": {
+    Aether: ["Adamantoise","Cactuar","Faerie","Gilgamesh","Jenova","Midgardsormr","Sargatanas","Siren"],
+    Crystal: ["Balmung","Brynhildr","Coeurl","Diabolos","Goblin","Malboro","Mateus","Zalera"],
+    Dynamis: ["Cuchulainn","Golem","Halicarnassus","Kraken","Maduin","Marilith","Rafflesia","Seraph"],
+    Primal: ["Behemoth","Excalibur","Exodus","Famfrit","Hyperion","Lamia","Leviathan","Ultros"]
+  },
+  Europe: {
+    Chaos: ["Cerberus","Louisoix","Moogle","Omega","Phantom","Ragnarok","Sagittarius","Spriggan"],
+    Light: ["Alpha","Lich","Odin","Phoenix","Raiden","Shiva","Twintania","Zodiark"]
+  },
+  Oceania: {
+    Materia: ["Bismarck","Ravana","Sephirot","Sophia","Zurvan"]
+  },
+  Japan: {
+    Elemental: ["Aegis","Atomos","Carbuncle","Garuda","Gungnir","Kujata","Tonberry","Typhon"],
+    Gaia: ["Alexander","Bahamut","Durandal","Fenrir","Ifrit","Ridill","Tiamat","Ultima"],
+    Mana: ["Anima","Asura","Chocobo","Hades","Ixion","Masamune","Pandaemonium","Titan"],
+    Meteor: ["Belias","Mandragora","Ramuh","Shinryu","Unicorn","Valefor","Yojimbo","Zeromus"]
+  }
+};
+
+// Beast tribe / allied society reputation. Rank resets to 0 points on every rank-up — NOT
+// cumulative from Neutral — confirmed against a real in-game screenshot (three different
+// Friendly-rank societies all showing "X/510" regardless of total lifetime points earned).
+// Quota is fixed per rank, same for every society. ARR societies plus Moogle and Vanu Vanu
+// start at rank 1 (Neutral); Vath and everything Stormblood-onward starts at rank 3
+// (Friendly), skipping Neutral/Recognized entirely. Rank 8 is the point-based cap for
+// everyone ("Allied" for ARR societies, "Bloodsworn" for HW+); HW+ societies have a further
+// rank 9 "Allied" reachable only via that expansion's Intersocietal Quests, not points —
+// quota 0 for both terminal ranks, same as the wiki shows "0/0".
+const SOCIETY_RANKS = [
+  {rank:1, name:'Neutral',    quota:150},
+  {rank:2, name:'Recognized', quota:360},
+  {rank:3, name:'Friendly',   quota:510},
+  {rank:4, name:'Trusted',    quota:720},
+  {rank:5, name:'Respected',  quota:990},
+  {rank:6, name:'Honored',    quota:1320},
+  {rank:7, name:'Sworn',      quota:1730},
+  {rank:8, name:'Allied/Bloodsworn', quota:0},
+  {rank:9, name:'Allied',     quota:0}
+];
+// Which MSQ progress (same patch-number stand-in as the header field and routine gating)
+// unlocks each expansion's societies. Ungated entirely if MSQ progress is blank, same as
+// routine gating's default.
+const SOCIETY_EXP_GATE = {
+  "A Realm Reborn": 2.1, "Heavensward": 3.1, "Stormblood": 4.1,
+  "Shadowbringers": 5.1, "Endwalker": 6.1, "Dawntrail": 7.1
+};
+// Per-expansion Intersocietal Quests — the actual gate on reaching the terminal "Allied"/
+// "Bloodsworn" rank. Require having every listed society at its own point-earning cap first
+// (Trusted for the four ARR societies below, Sworn for everyone else). Shadowbringers never
+// got an Intersocietal Quests chain at all — Bloodsworn is the true max for Pixie/Qitari/Dwarf,
+// there's no rank 9 for them.
+const INTERSOCIETAL_QUESTS = {
+  "A Realm Reborn": "A Realm Reborn Intersocietal Quests",
+  "Heavensward": "Heavensward Intersocietal Quests",
+  "Stormblood": "Stormblood Intersocietal Quests",
+  "Endwalker": "Endwalker Intersocietal Quests",
+  "Dawntrail": "Dawntrail Intersocietal Quests"
+  // Shadowbringers deliberately has no entry — no chain exists, Bloodsworn is the cap.
+};
+// [name, expansion group, starting rank, last rank reachable purely by points, has a rank-9
+// "Allied" tier]. Amalj'aa/Kobold/Sahagin/Sylph stop earning points at Trusted(4) — Ixal is
+// the one ARR society that goes all the way to Sworn(7), same as every non-ARR society. Every
+// society's points stop entirely at rank 8 (Allied for ARR, Bloodsworn for HW+); a further
+// rank 9 "Allied" only exists where an Intersocietal Quests chain exists for that expansion.
+const ALLIED_SOCIETIES = [
+  ["Amalj'aa","A Realm Reborn",1,4,false], ["Sylph","A Realm Reborn",1,4,false],
+  ["Kobold","A Realm Reborn",1,4,false], ["Sahagin","A Realm Reborn",1,4,false],
+  ["Ixal","A Realm Reborn",1,7,false],
+  ["Vanu Vanu","Heavensward",1,7,true], ["Moogle","Heavensward",1,7,true], ["Vath","Heavensward",3,7,true],
+  ["Kojin","Stormblood",3,7,true], ["Ananta","Stormblood",3,7,true], ["Namazu","Stormblood",3,7,true],
+  ["Pixie","Shadowbringers",3,7,false], ["Qitari","Shadowbringers",3,7,false], ["Dwarf","Shadowbringers",3,7,false],
+  ["Arkasodara","Endwalker",3,7,true], ["Omicron","Endwalker",3,7,true], ["Loporrit","Endwalker",3,7,true],
+  ["Pelupelu","Dawntrail",3,7,true], ["Mamool Ja","Dawntrail",3,7,true], ["Yok Huy","Dawntrail",3,7,true]
+];
+
+// Every A and S rank in the game, in expansion order, S first within each expansion so
+// the rarest sits at the top of its block. Shape is
+// [rank, BNpcName id, name, zone, spawn condition] — the condition is present only for S
+// ranks, since A ranks have none and simply come back on a timer.
+//
+// B ranks are deliberately absent. They respawn in seconds and die incidentally to any
+// train, so a tick against one records nothing the player would ever want to look up.
+//
+// The id is the game's own BNpcName row, read out of NotoriousMonster by MemoriaProbe,
+// and it is what a tick is stored against. It cannot drift: Ker is 10615 whatever the
+// mark is called in any language or patch, so correcting a display name below can never
+// strand what someone has already ticked.
+//
+// Membership and rank were confirmed against that sheet — 127 marks, no additions, no
+// omissions, no rank disagreements. The names and zones stay as the community wiki
+// writes them: the sheet stores names in the form the client title-cases at draw time
+// ("mindflayer", "queen hawk"), which is not the form anyone reads them in. Neither rank
+// is listed on a hunt board — the board issues B-rank bills — so a player meets these
+// names on the enemy's own nameplate in the field, and everywhere else on Faloop or Bear
+// Tracker. All three render them title-cased, which is what this list matches.
+const ELITE_MARKS = [
+["A Realm Reborn", [
+  ["S",2962,"Croque-Mitaine","Middle La Noscea","Mine Grade 3 La Noscean Topsoil. Node shows 7pm-10pm Eorzea Time."],
+  ["S",2963,"Croakadile","Lower La Noscea","Traverse spawn points during a Full Moon."],
+  ["S",2965,"Bonnacon","Western La Noscea","Harvest La Noscean Leeks. Node shows 8am-11am Eorzea Time."],
+  ["S",2964,"The Garlok","Eastern La Noscea","Spawns after its random timer expires. Rain puts it to sleep, ensuring it won't spawn for 200 minutes. (3 hours 20 minutes)"],
+  ["S",2966,"Nandi","Upper La Noscea","Traverse spawn points with a minion out."],
+  ["S",2967,"Chernobog","Outer La Noscea","A player dying."],
+  ["S",2958,"Brontes","Central Thanalan","Eat food at spawn points."],
+  ["S",2957,"Zona Seeker","Western Thanalan","Fish a Glimmerscale."],
+  ["S",2959,"Lampalagua","Eastern Thanalan","Initiate Battlecraft Leves."],
+  ["S",2960,"Nunyunuwi","Southern Thanalan","Ensure all FATEs succeed for exactly 1 hour straight."],
+  ["S",2961,"Minhocao","Northern Thanalan","Kill 100 Earth Sprites."],
+  ["S",2953,"Laideronnette","Central Shroud","Spawns 6 minutes into the second consecutive Rain weather window."],
+  ["S",2955,"Mindflayer","South Shroud","Traverse spawn points at 00:00 during a New Moon."],
+  ["S",2954,"Wulgaru","East Shroud","Initiate Battlecraft Leves."],
+  ["S",2956,"Thousand-cast Theda","North Shroud","Fish a Judgeray at 5-9pm."],
+  ["S",2968,"Safat","Coerthas Central Highlands","Fall off cliffs to 1 HP."],
+  ["S",2969,"Agrippa the Mighty","Mor Dhona","Complete Treasure Maps."],
+  ["A",2945,"Vogaal Ja","Middle La Noscea"],
+  ["A",2946,"Unktehi","Lower La Noscea"],
+  ["A",2948,"Nahn","Western La Noscea"],
+  ["A",2947,"Hellsclaw","Eastern La Noscea"],
+  ["A",2949,"Marberry","Upper La Noscea"],
+  ["A",2950,"Cornu","Outer La Noscea"],
+  ["A",2941,"Sabotender Bailarina","Central Thanalan"],
+  ["A",2940,"Alectryon","Western Thanalan"],
+  ["A",2942,"Maahes","Eastern Thanalan"],
+  ["A",2943,"Zanig'oh","Southern Thanalan"],
+  ["A",2944,"Dalvag's Final Flame","Northern Thanalan"],
+  ["A",2936,"Forneus","Central Shroud"],
+  ["A",2938,"Ghede Ti Malice","South Shroud"],
+  ["A",2937,"Melt","Eastern Shroud"],
+  ["A",2939,"Girtab","North Shroud"],
+  ["A",2951,"Marraco","Coerthas Central Highlands"],
+  ["A",2952,"Kurrea","Mor Dhona"],
+]],
+["Heavensward", [
+  ["S",4374,"Kaiser Behemoth","Coerthas Western Highlands","Fly over spawn points with Behemoth Heir."],
+  ["S",4375,"Senmurv","The Dravanian Forelands","Complete the \"Cerf's Up\" FATE at (19,27) 5 times in a row."],
+  ["S",4377,"Gandarewa","The Churning Mists","Harvest Seventh Heaven or mine Aurum Regis Ore."],
+  ["S",4378,"Bird of Paradise","The Sea of Clouds","Squonk's Chirp AoE has a chance to spawn it."],
+  ["S",4376,"The Pale Rider","The Dravanian Hinterlands","Open treasure coffers from Timeworn Wyvernskin Maps."],
+  ["S",4380,"Leucrotta","Azys Lla","Kill 50 Allagan Chimera, 50 Meracydian Vouivre, and 50 Lesser Hydra."],
+  ["A",4362,"Mirka","Coerthas Western Highlands"],
+  ["A",4363,"Lyuba","Coerthas Western Highlands"],
+  ["A",4364,"Pylraster","The Dravanian Forelands"],
+  ["A",4365,"Lord of the Wyverns","The Dravanian Forelands"],
+  ["A",4368,"Bune","The Churning Mists"],
+  ["A",4369,"Agathos","The Churning Mists"],
+  ["A",4370,"Enkelados","The Sea of Clouds"],
+  ["A",4371,"Sisiutl","The Sea of Clouds"],
+  ["A",4366,"Slipkinx Steeljoints","The Dravanian Hinterlands"],
+  ["A",4367,"Stolas","The Dravanian Hinterlands"],
+  ["A",4372,"Campacti","Azys Lla"],
+  ["A",4373,"Stench Blossom","Azys Lla"],
+]],
+["Stormblood", [
+  ["S",5987,"Udumbara","The Fringes","Kill 100 Leshy & 100 Diakka."],
+  ["S",5985,"Gamma","Yanxia","Fly over spawn points with the Toy Alexander minion."],
+  ["S",5984,"Okina","The Ruby Sea","Kill 100 Yumemi and 100 Naked Yumemi. Spawns from 12pm during a Full Moon."],
+  ["S",5988,"Bone Crawler","The Peaks","Travel via chocobo porter."],
+  ["S",5986,"Orghana","The Azim Steppe","Complete 'Not Just a Tribute' FATE at (12,14) then fly over spawn points."],
+  ["S",5989,"Salt and Light","The Lochs","Discard items 50 times."],
+  ["A",5990,"Orcus","The Fringes"],
+  ["A",5991,"Erle","The Fringes"],
+  ["A",5998,"Gajasura","Yanxia"],
+  ["A",5999,"Angada","Yanxia"],
+  ["A",5996,"Funa Yurei","The Ruby Sea"],
+  ["A",5997,"Oni Yumemi","The Ruby Sea"],
+  ["A",5992,"Vochstein","The Peaks"],
+  ["A",5993,"Aqrabuamelu","The Peaks"],
+  ["A",6000,"Girimekhala","The Azim Steppe"],
+  ["A",6001,"Sum","The Azim Steppe"],
+  ["A",5994,"Mahisha","The Lochs"],
+  ["A",5995,"Luminare","The Lochs"],
+]],
+["Shadowbringers", [
+  ["S",8905,"Tyger","Lakeland","Discard a Rail Tenderloin."],
+  ["S",8653,"Aglaope","Il Mheg","Travel over spawn points with the Scarlet Peacock minion out."],
+  ["S",8910,"Forgiven Pedantry","Kholusia","Gather 50 Dwarven Cotton Bolls."],
+  ["S",8900,"Tarchia","Amh Araeng","Cast the blue mage action Self-destruct on spawn points."],
+  ["S",8890,"Ixtab","The Rak'tika Greatwood","Kill 100 Cracked Ronkan Dolls, 100 Cracked Ronkan Thorns and 100 Cracked Ronkan Vessels."],
+  ["S",8895,"Gunitt","The Tempest","Drag 3 Deep-sea Leeches to a Clionid and get hit by its attack \"Buccal Cones\"."],
+  ["S",8915,"Forgiven Rebellion","Norvrandt","When an S rank dies in Norvrandt, it has a chance to spawn Forgiven Gossips. Killing all four will spawn Forgiven Rebellion."],
+  ["A",8907,"Nariphon","Lakeland"],
+  ["A",8906,"Nuckelavee","Lakeland"],
+  ["A",8655,"O Poorest Pauldia","Il Mheg"],
+  ["A",8654,"The Mudman","Il Mheg"],
+  ["A",8911,"Li'l Murderer","Kholusia"],
+  ["A",8912,"Huracan","Kholusia"],
+  ["A",8901,"Maliktender","Amh Araeng"],
+  ["A",8902,"Sugaar","Amh Araeng"],
+  ["A",8892,"Grassman","The Rak'tika Greatwood"],
+  ["A",8891,"Supay","The Rak'tika Greatwood"],
+  ["A",8897,"Baal","The Tempest"],
+  ["A",8896,"Rusalka","The Tempest"],
+]],
+["Endwalker", [
+  ["S",10617,"Burfurlur the Canny","Labyrinthos","Use a Tiny Troll minion on spawn points in clear skies Clear Skies/fair skies Fair Skies daytime."],
+  ["S",10618,"Sphatika","Thavnair","Kill 100 Vajralangula, 100 Pisaca and 100 Asvattha."],
+  ["S",10619,"Armstrong","Garlemald","Wear Mended Imperial Pot Helm and Mended Imperial Short Robe and die on spawn points."],
+  ["S",10620,"Ruminator","Mare Lamentorum","Kill 100 Thinkers, 100 Weepers, and 100 Wanderers."],
+  ["S",10621,"Ophioneus","Elpis","Discard a stack of 5 Egg of Elpis."],
+  ["S",10622,"Narrow-rift","Ultima Thule","Have 10 people travel over spawn points with the Wee Ea minion summoned."],
+  ["S",10615,"Ker","Endwalker areas","When an S rank dies in and Endwalker area, it has a chance to spawn Ker Shrouds. Killing all four will spawn Ker."],
+  ["A",10624,"Hulder","Labyrinthos"],
+  ["A",10623,"Storsie","Labyrinthos"],
+  ["A",10626,"Sugriva","Thavnair"],
+  ["A",10625,"Yilan","Thavnair"],
+  ["A",10628,"Aegeiros","Garlemald"],
+  ["A",10627,"Minerva","Garlemald"],
+  ["A",10630,"Mousse Princess","Mare Lamentorum"],
+  ["A",10629,"Lunatender Queen","Mare Lamentorum"],
+  ["A",10632,"Petalodus","Elpis"],
+  ["A",10631,"Gurangatch","Elpis"],
+  ["A",10634,"Arch-Eta","Ultima Thule"],
+  ["A",10633,"Fan Ail","Ultima Thule"],
+]],
+["Dawntrail", [
+  ["S",13444,"Ihnuxokiy","Kozama'uka","Use the Morpho minion on spawn points."],
+  ["S",13360,"Kirlirger the Abhorrent","Urqopacha","Be on a spawn point during Fog and a new moon."],
+  ["S",12754,"Neyoozoteel","Yak T'el","Discard a stack of at least 50 Fish Meal."],
+  ["S",13399,"Sansheya","Shaaloani","Complete 'You Are What You Drink' FATE at (14,23.5) three times in a row."],
+  ["S",13156,"Atticus the Primogenitor","Heritage Found","Craft HQ Rroneek Steak."],
+  ["S",13437,"The Forecaster","Living Memory","Cast the blue mage action Northerlies on spawn points."],
+  ["S",13406,"Arch Aethereater","Dawntrail areas","When an S rank dies in a Dawntrail area, it has a chance to spawn Crystal Incarnations. Killing all four will spawn Arch Aethereater."],
+  ["A",13443,"Pkuucha","Kozama'uka"],
+  ["A",13442,"The Raintriller","Kozama'uka"],
+  ["A",13362,"Nechuciho","Urqopacha"],
+  ["A",13361,"Queen Hawk","Urqopacha"],
+  ["A",12753,"Rrax Yity'a","Yak T'el"],
+  ["A",12692,"Starcrier","Yak T'el"],
+  ["A",13401,"Keheniheyamewi","Shaaloani"],
+  ["A",13400,"Yehehetoaua'pyo","Shaaloani"],
+  ["A",13157,"Heshuala","Heritage Found"],
+  ["A",13158,"Urna Variabilis","Heritage Found"],
+  ["A",13436,"Cat's Eye","Living Memory"],
+  ["A",13435,"Sally the Sweeper","Living Memory"],
+]],
+];
+
+// Which "Mark of the ..." achievement each mark belongs to, so the tab can be read
+// alongside the achievement window instead of against it.
+//
+// The achievements are named for regions the game uses nowhere else — nothing tells a
+// player that "the Holt" is the Black Shroud, or that "the Lake" means Mor Dhona and
+// Coerthas together. Grouping the list this way defines each name by the zones sitting
+// under it.
+//
+// Shape is [expansion, achievement name, region as the reader knows it, rank, mark ids].
+// The ids come from each achievement's own Data field, read out of the game by
+// MemoriaProbe, so a mark in an unexpected zone cannot land in the wrong group.
+//
+// A Realm Reborn through Stormblood only. Shadowbringers onward has no group
+// achievements at all, and those expansions stay a flat list per rank — an honest
+// asymmetry, since there is genuinely nothing there to correspond to.
+const ELITE_MARK_GROUPS = [
+  ["A Realm Reborn","Mark of the Holt: S","the Black Shroud","S",[2953,2955,2954,2956]],
+  ["A Realm Reborn","Mark of the Holt: A","the Black Shroud","A",[2936,2938,2937,2939]],
+  ["A Realm Reborn","Mark of the Desert: S","Thanalan","S",[2958,2957,2959,2960,2961]],
+  ["A Realm Reborn","Mark of the Desert: A","Thanalan","A",[2941,2940,2942,2943,2944]],
+  ["A Realm Reborn","Mark of the Sea: S","La Noscea","S",[2962,2963,2965,2964,2966,2967]],
+  ["A Realm Reborn","Mark of the Sea: A","La Noscea","A",[2945,2946,2948,2947,2949,2950]],
+  ["A Realm Reborn","Mark of the Lake: S","Mor Dhona & Coerthas","S",[2968,2969]],
+  ["A Realm Reborn","Mark of the Lake: A","Mor Dhona & Coerthas","A",[2951,2952]],
+  ["Heavensward","Mark of the Dragon: S","Dravania & the Churning Mists","S",[4375,4377,4376]],
+  ["Heavensward","Mark of the Dragon: A","Dravania & the Churning Mists","A",[4364,4365,4368,4369,4366,4367]],
+  ["Heavensward","Mark of Cloud and Ice: S","Abalathia & Coerthas West","S",[4374,4378,4380]],
+  ["Heavensward","Mark of Cloud and Ice: A","Abalathia & Coerthas West","A",[4362,4363,4370,4371,4372,4373]],
+  ["Stormblood","Mark of the Wastes: S","Gyr Abania","S",[5987,5988,5989]],
+  ["Stormblood","Mark of the Wastes: A","Gyr Abania","A",[5990,5991,5992,5993,5994,5995]],
+  ["Stormblood","Mark of the East: S","Othard","S",[5985,5984,5986]],
+  ["Stormblood","Mark of the East: A","Othard","A",[5998,5999,5996,5997,6000,6001]],
+];
+// Time Memoria sends societies keyed by the game's own BeastTribe row id, because at least
+// four spellings of each society are in circulation — the sheet says "sylphs", the wiki says
+// "Sylphs", this page says "Sylph". The id cannot drift; the wording can.
+//
+// Note 6/7/8: the plugin's ids run Vanu, Vath, Moogle while ALLIED_SOCIETIES above runs
+// Vanu Vanu, Moogle, Vath. Matching by position would quietly swap two societies, which is
+// exactly the kind of wrong-but-plausible result that never gets noticed.
+const TM_SOCIETY_IDS = {
+  1:"Amalj'aa", 2:"Sylph", 3:"Kobold", 4:"Sahagin", 5:"Ixal",
+  6:"Vanu Vanu", 7:"Vath", 8:"Moogle",
+  9:"Kojin", 10:"Ananta", 11:"Namazu",
+  12:"Pixie", 13:"Qitari", 14:"Dwarf",
+  15:"Arkasodara", 16:"Omicron", 17:"Loporrit",
+  18:"Pelupelu", 19:"Mamool Ja", 20:"Yok Huy"
+};
+function rankInfo(rankNum){ return SOCIETY_RANKS.find(r=>r.rank===rankNum) || SOCIETY_RANKS[0]; }
+function socId(name){ return name.replace(/[^a-zA-Z0-9]/g,''); }
+// The actual selectable ranks for a society — not a plain range, since the four early-cap
+// ARR societies skip straight from Trusted(4) to Allied(8) with no 5/6/7 in between.
+function validRanksFor(name){
+  const [, , startRank, capAt, hasRank9] = ALLIED_SOCIETIES.find(a=>a[0]===name);
+  const ranks = [];
+  for(let r=startRank; r<=capAt; r++) ranks.push(r);
+  ranks.push(8);
+  if(hasRank9) ranks.push(9);
+  return ranks;
+}
+
+// Sourced from ffxiv.consolegameswiki.com's per-job "X_Quests" pages (fetched directly,
+// not from memory). All 11 DoH/DoL jobs share the same level pattern through level 70:
+// 1, 1, 5, 10, 15, ..., 50, 50, 53, ..., 70. Two entries share level 1 (class unlock, then
+// first job quest) and level 50/60 (class capstone, then the next expansion's opener) —
+// that's real, not a data error. DoH/DoL stop at 70 here; their post-70 hub questlines
+// (Crystalline Mean/The Studium/Wachumeqimeqi) are shared per job group, in HUB_QUESTS.
+//
+// Combat jobs go all the way to 100. Past level 70 each job still has its own handful of
+// private "capstone" quests (one at the top of each bracket, e.g. Paladin's "Worth Fighting
+// For" at 80) but the bulk of 71-100 is ROLE quests — one shared chain per role (tank/melee/
+// ranged/caster/healer), same NPCs and same quest regardless of which job in that role you're
+// on. Those live in ROLE_QUESTS below, tracked separately per-role rather than duplicated into
+// every job's array, so clearing "Vengeance in Defeat" on Dragoon also clears it for Ninja.
+const JOB_QUESTS = {
+  Carpenter: [
+    {level:1,name:"Way of the Carpenter"},{level:1,name:"My First Saw"},{level:5,name:"To Be the Wood"},
+    {level:10,name:"Supplies for the Sick"},{level:15,name:"A Carpenter in Need"},{level:20,name:"The Lance's Lesson"},
+    {level:25,name:"A Crisis of Confidence"},{level:30,name:"Between Captain and Conjurer"},{level:35,name:"Growing Apart"},
+    {level:40,name:"Memento Mori"},{level:45,name:"Gone till the Sixth Astral Moon"},{level:50,name:"Saving Captain Gairhard"},
+    {level:50,name:"Lance of a Lifetime"},{level:53,name:"A-hunting He Will Go"},{level:55,name:"Ministers of Grace Defend Him"},
+    {level:58,name:"The Son Also Rises"},{level:60,name:"More Fierce than Fire"},{level:60,name:"Uncharted Territory"},
+    {level:63,name:"The Game of Confidence"},{level:65,name:"A Lesson in Listening"},{level:68,name:"Live and Let Dine"},
+    {level:70,name:"Tea Party Rules"}
+  ],
+  Blacksmith: [
+    {level:1,name:"Way of the Blacksmith"},{level:1,name:"My First Cross-pein Hammer"},{level:5,name:"Hammer Time"},
+    {level:10,name:"Riveting Ramblings"},{level:15,name:"The Business of Blacksmithing"},{level:20,name:"By the Sweat of Your Brow"},
+    {level:25,name:"True as Steel"},{level:30,name:"As Iron Sharpens Iron"},{level:35,name:"Set Faezahr to Stun"},
+    {level:40,name:"Forging Ahead"},{level:45,name:"Beauty and the Bardiche"},{level:50,name:"Waiting in the Winglet"},
+    {level:50,name:"Forging Northwards"},{level:53,name:"Leave It to Fremondain"},{level:55,name:"The Good Fight"},
+    {level:58,name:"Blade That Was Broken"},{level:60,name:"Integrity"},{level:60,name:"A Missive from the Far East"},
+    {level:63,name:"The Client Is King"},{level:65,name:"Blood Ties"},{level:68,name:"The Missing Piece"},
+    {level:70,name:"The Final Face-off"}
+  ],
+  Armorer: [
+    {level:1,name:"Way of the Armorer"},{level:1,name:"My First Doming Hammer"},{level:5,name:"From Thigh to Neck"},
+    {level:10,name:"The Base Fundamentals"},{level:15,name:"One's Own Worst Critic"},{level:20,name:"An Armorer's Pride"},
+    {level:25,name:"Showing Your Steel"},{level:30,name:"May the Best Armorer Win"},{level:35,name:"Pans of Steel"},
+    {level:40,name:"Best of Three"},{level:45,name:"For the Good of the Guild"},{level:50,name:"Rivalry and Respect"},
+    {level:50,name:"The Breaking of Blanstyr"},{level:53,name:"Light-headed"},{level:55,name:"Fancy Lancer"},
+    {level:58,name:"The Reforging of Blanstyr"},{level:60,name:"The Pride of Vymelli"},{level:60,name:"Original Blanstyr"},
+    {level:63,name:"Eastern Apprentice"},{level:65,name:"Forging with Scales"},{level:68,name:"Head-to-head Contest"},
+    {level:70,name:"A Confluence of Style"}
+  ],
+  Goldsmith: [
+    {level:1,name:"Way of the Goldsmith"},{level:1,name:"My First Chaser Hammer"},{level:5,name:"Gorgets Rising"},
+    {level:10,name:"Throw Some Rings on It"},{level:15,name:"Objectively Speaking"},{level:20,name:"A Melding of the Minds"},
+    {level:25,name:"Or Ever the Silver Cord Be Loosed"},{level:30,name:"Serendipity Now"},{level:35,name:"Mammets on Fire"},
+    {level:40,name:"The Horns of the Green"},{level:45,name:"The Fox in the Hen House"},{level:50,name:"Jaded"},
+    {level:50,name:"Form to the Formless"},{level:53,name:"Elegance and Artistry"},{level:55,name:"Double Trouble"},
+    {level:58,name:"A Masterclass"},{level:60,name:"Two Hearts Beat as One"},{level:60,name:"A Royal Request"},
+    {level:63,name:"Gemworks in Progress"},{level:65,name:"Blindsided"},{level:68,name:"The Perfect Tribute"},
+    {level:70,name:"Sultana Dreaming"}
+  ],
+  Leatherworker: [
+    {level:1,name:"Way of the Leatherworker"},{level:1,name:"My First Head Knife"},{level:5,name:"A Test of Technique"},
+    {level:10,name:"Geva's Gambit"},{level:15,name:"Working Hells for Leather"},{level:20,name:"Aldgoat Everything"},
+    {level:25,name:"Skin in the Game"},{level:30,name:"Toadskins of the Father"},{level:35,name:"Lead by Example"},
+    {level:40,name:"Brand Loyalty"},{level:45,name:"Dissension in the Ranks"},{level:50,name:"Accept No Imitations"},
+    {level:50,name:"Turndown Service"},{level:53,name:"By Your Bootstraps"},{level:55,name:"Perfect Pitch"},
+    {level:58,name:"From the Hoplon to the Brume"},{level:60,name:"A Winter's Sale"},{level:60,name:"A Taxing Request"},
+    {level:63,name:"Mounting Expectations"},{level:65,name:"The Value of Life"},{level:68,name:"The Trouble with Taxidermy"},
+    {level:70,name:"True to Life"}
+  ],
+  Weaver: [
+    {level:1,name:"Way of the Weaver"},{level:1,name:"My First Needle"},{level:5,name:"Once More unto the Breeches"},
+    {level:10,name:"Alternative Applications"},{level:15,name:"Practical Needs"},{level:20,name:"Materia Concerns"},
+    {level:25,name:"That Velveteen Dress"},{level:30,name:"Miner on a Mission"},{level:35,name:"Designed by Committee"},
+    {level:40,name:"A Subtle Inquiry"},{level:45,name:"The Intervention"},{level:50,name:"A Miner Reborn"},
+    {level:50,name:"The Social Knitwork"},{level:53,name:"Tomboy Foolery"},{level:55,name:"For Lover and Country"},
+    {level:58,name:"Spinning the Truth"},{level:60,name:"Never Leave without a Good-bye"},{level:60,name:"When East Meets West"},
+    {level:63,name:"The Butterfly Effect"},{level:65,name:"The Crane's Caveat"},{level:68,name:"A Geiko for All Seasons"},
+    {level:70,name:"Send Me an Angel"}
+  ],
+  Alchemist: [
+    {level:1,name:"Way of the Alchemist"},{level:1,name:"My First Alembic"},{level:5,name:"The Second Principle"},
+    {level:10,name:"All of Your Beeswax"},{level:15,name:"For Fair Love"},{level:20,name:"The Arcanist's Tome"},
+    {level:25,name:"Practical Alchemy"},{level:30,name:"Baleful Brews"},{level:35,name:"Cease and Assist"},
+    {level:40,name:"Might Made Right"},{level:45,name:"Ultimate Alchemy"},{level:50,name:"Momentary Miracle"},
+    {level:50,name:"Without a Trace"},{level:53,name:"Magic Marks the Spot"},{level:55,name:"From Hells"},
+    {level:58,name:"Burden of Proof"},{level:60,name:"What Death Can Join Together"},{level:60,name:"Not Quite Dead Yet"},
+    {level:63,name:"The Forbidden Blade"},{level:65,name:"Do Goldsmiths Dream of Gilded Sheep"},{level:68,name:"No Sin Unpunished"},
+    {level:70,name:"A Love Beyond Lifetimes"}
+  ],
+  Culinarian: [
+    {level:1,name:"Way of the Culinarian"},{level:1,name:"My First Skillet"},{level:5,name:"A Treat of Trout"},
+    {level:10,name:"Dodo It Yourself"},{level:15,name:"On a Skewer Tip"},{level:20,name:"Releasing a Burden"},
+    {level:25,name:"Winning Friends with Aldgoat"},{level:30,name:"The Chefsbane Cometh"},{level:35,name:"Of Cooks and Books"},
+    {level:40,name:"Diplomacy of the Skillet"},{level:45,name:"A Taste of Home"},{level:50,name:"Revenge of the Chefsbane"},
+    {level:50,name:"Wait on Me"},{level:53,name:"A Spoonful Less Sugar"},{level:55,name:"Looking for Some Hot Stuff"},
+    {level:58,name:"Love Meat Tender"},{level:60,name:"The Spirit of Hospitality"},{level:60,name:"Flavors of the Far East"},
+    {level:63,name:"Rice to the Occasion"},{level:65,name:"A Broth from the Brine"},{level:68,name:"Teach a Man to Make Fish"},
+    {level:70,name:"The Way to a Father's Heart"}
+  ],
+  Miner: [
+    {level:1,name:"Way of the Miner"},{level:1,name:"My First Pickaxe"},{level:5,name:"Know Thy Land"},
+    {level:10,name:"The Cutting Edge"},{level:15,name:"Getting in Deep"},{level:20,name:"Old Wisdom, New Ways"},
+    {level:25,name:"Water from Stone"},{level:30,name:"Obsidian Race"},{level:35,name:"Amethysts Are Forever"},
+    {level:40,name:"To Die For"},{level:45,name:"Gulley of Woes"},{level:50,name:"Canyon of Regret"},
+    {level:50,name:"Breaking New Ground"},{level:53,name:"Sellspade"},{level:55,name:"The Same Vein"},
+    {level:58,name:"Digging Deeper"},{level:60,name:"The Hole Truth"},{level:60,name:"Gift of the Gob"},
+    {level:63,name:"Thick Skin"},{level:65,name:"Pedal to the Metal"},{level:68,name:"Where the Money Takes You"},
+    {level:70,name:"A Miner Success"}
+  ],
+  Botanist: [
+    {level:1,name:"Way of the Botanist"},{level:1,name:"My First Hatchet"},{level:5,name:"Sap for Smiles"},
+    {level:10,name:"Weapons of a Feather"},{level:15,name:"Haste Makes Waste"},{level:20,name:"Dressed to Harvest"},
+    {level:25,name:"Aromatic Aspirations"},{level:30,name:"What Nature Giveth"},{level:35,name:"A Feast to Say the Least"},
+    {level:40,name:"Crisis of Faith"},{level:45,name:"Botanist in a Bind"},{level:50,name:"Seeds of Hope"},
+    {level:50,name:"Call from the Clouds"},{level:53,name:"Onions of Life Bestowing"},{level:55,name:"Two Nations, One Seed"},
+    {level:58,name:"Love for Harmony"},{level:60,name:"Seeds Know No Borders"},{level:60,name:"Never Meet Your Heroes"},
+    {level:63,name:"You Say Popoto, I Say..."},{level:65,name:"Walking for Walker's"},{level:68,name:"The White Death"},
+    {level:70,name:"Edgyth's Winning Streak"}
+  ],
+  Fisher: [
+    {level:1,name:"Way of the Fisher"},{level:1,name:"My First Fishing Rod"},{level:5,name:"Bigger Fish to Fry"},
+    {level:10,name:"The Princess and the Fish"},{level:15,name:"Every Fish Has a Silver Lining"},{level:20,name:"A Fish in Hot Water"},
+    {level:25,name:"A Game of Cat and Fish"},{level:30,name:"Like Fish Passing in the Night"},{level:35,name:"A Fish out of Water"},
+    {level:40,name:"Fishing in the Rain"},{level:45,name:"I Believe Fish Can Fly"},{level:50,name:"So Long, and Thanks for All the Fish"},
+    {level:50,name:"Plenty More Fish in the Sea"},{level:53,name:"The Icepick Challenge"},{level:55,name:"Invasion of the Supper Snatchers"},
+    {level:58,name:"One Man's Fish Is Another Man's Poison"},{level:60,name:"Carpe Diem"},{level:60,name:"Whither Wawalago Wanders"},
+    {level:63,name:"A Rousing Reunion"},{level:65,name:"Search for the Spawning Grounds"},{level:68,name:"Always a Bigger Fish"},
+    {level:70,name:"Farewell, and Thanks for the Fish"}
+  ],
+
+  // Combat jobs, sourced from ffxiv.consolegameswiki.com's Class_Quests / Job_Quests index
+  // pages plus per-job pages for the ones the aggregate fetch truncated before reaching
+  // (Machinist, Dancer, White Mage, Scholar, Astrologian, Sage, Black Mage, Summoner, Red
+  // Mage, Blue Mage, and the back half of Arcanist/Bard). Ten jobs carry their ARR base
+  // class's 1-30 chain first (Gladiator→Paladin, Marauder→Warrior, Conjurer→White Mage,
+  // Thaumaturge→Black Mage, Arcanist→Scholar/Summoner, Pugilist→Monk, Lancer→Dragoon,
+  // Archer→Bard, Rogue→Ninja) — Haven's call, since the game gates them that way regardless.
+  // Scoped to level ≤70 only, same as crafting/gathering; Sage and Reaper unlock AT 70 so
+  // only their level-70 entries are in scope yet. Viper and Pictomancer are 80+ jobs and
+  // Beastmaster is at the end, from the game's own sheet — the checklist panel shows
+  // "No quest data loaded for this job yet" for anything missing.
+  Paladin: [
+    {level:1,name:"Way of the Gladiator"},{level:1,name:"My First Gladius"},{level:5,name:"Kicking the Hornet's Nest"},
+    {level:10,name:"Ul'dah's Most Wanted"},{level:15,name:"That Old Familiar Feeling"},{level:20,name:"The Face of Thal"},
+    {level:25,name:"On Holy Ground"},{level:30,name:"The Rematch"},
+    {level:30,name:"Paladin's Pledge"},{level:35,name:"Honor Lost"},{level:40,name:"Power Struggles"},
+    {level:45,name:"Poisoned Hearts"},{level:45,name:"Parley in the Sagolii"},{level:50,name:"Keeping the Oath"},
+    {level:50,name:"An Exemplary Example"},{level:52,name:"The Paladin Who Cried Wolf"},{level:54,name:"Big Sollerets to Fill"},
+    {level:56,name:"Hey Soul Crystal"},{level:58,name:"All According to Plan"},{level:60,name:"This Little Sword of Mine"},
+    {level:60,name:"Tournament of the Century"},{level:63,name:"In Thal's Name"},{level:65,name:"In Nald's Name"},
+    {level:68,name:"Fade to Black Lotus"},{level:70,name:"Raising the Sword"},{level:80,name:"Worth Fighting For"}
+  ],
+  Warrior: [
+    {level:1,name:"Way of the Marauder"},{level:1,name:"My First Axe"},{level:5,name:"Axe in the Stone"},
+    {level:10,name:"Wake of Destruction"},{level:15,name:"Brutal Strength"},{level:20,name:"The Mountain That Strides"},
+    {level:25,name:"Bleeder of the Pack"},{level:30,name:"Bringing Down the Mountain"},
+    {level:30,name:"Pride and Duty (Will Take You from the Mountain)"},{level:35,name:"Embracing the Beast"},
+    {level:40,name:"Curious Gorge Goes to Wineport"},{level:45,name:"Looking the Part"},{level:45,name:"Proof Is the Pudding"},
+    {level:50,name:"How to Quit You"},{level:50,name:"Better Axe Around"},{level:52,name:"Duty and the Beast"},
+    {level:54,name:"The Bear Necessity"},{level:56,name:"Pirates of Shallow Water"},{level:56,name:"How to Train Your Warrior"},
+    {level:58,name:"Slap an' Chop"},{level:60,name:"And My Axe"},{level:60,name:"Curious Gorge Meets His Match"},
+    {level:63,name:"Field Training"},{level:65,name:"When Push Comes to Shove"},{level:68,name:"Going the Distance"},
+    {level:70,name:"The Heart of the Problem"},{level:80,name:"Once, Twice, Three Times a Warrior"}
+  ],
+  "Dark Knight": [
+    {level:30,name:"Ishgardian Justice"},{level:35,name:"The Voice in the Abyss"},{level:40,name:"Heroic Reprise"},
+    {level:45,name:"Declaration of Blood"},{level:50,name:"Our Answer"},{level:50,name:"A Dark Spectacle"},
+    {level:50,name:"Our End"},{level:50,name:"The Wages of Mercy"},{level:52,name:"The Knight and the Maiden Fair"},
+    {level:54,name:"Kindred Spirits"},{level:56,name:"Original Sins"},{level:58,name:"The Flame in the Abyss"},
+    {level:60,name:"Absolution"},{level:60,name:"In Memories We Walked"},{level:63,name:"The Widow and Her Love"},
+    {level:65,name:"The Orphans and the Broken Blade"},{level:68,name:"We Can Never Go Home"},{level:70,name:"Our Compromise"},{level:80,name:"Our Closure"}
+  ],
+  Gunbreaker: [
+    {level:60,name:"The Makings of a Gunbreaker"},{level:60,name:"Hired Gunblades"},{level:63,name:"For Better or Worse"},
+    {level:65,name:"Confessions of a Flaming Mongrel"},{level:68,name:"Of Defectors and Defenders"},{level:70,name:"Steel against Steel"},{level:80,name:"Gunblades of the Patriots"}
+  ],
+  "White Mage": [
+    {level:1,name:"Way of the Conjurer"},{level:1,name:"My First Cane"},{level:5,name:"Trial by Earth"},
+    {level:10,name:"Trial by Wind"},{level:15,name:"Trial by Water"},{level:20,name:"Sylphie's Trials"},
+    {level:25,name:"Like Mother, Like Daughter"},{level:30,name:"In Nature's Embrace"},
+    {level:30,name:"Seer Folly"},{level:35,name:"Only You Can Prevent Forest Ire"},{level:40,name:"O Brother, Where Art Thou"},
+    {level:45,name:"Following in His Footsteps"},{level:45,name:"Yearn for the Urn"},{level:50,name:"Heart of the Forest"},
+    {level:50,name:"Taint Misbehaving"},{level:52,name:"A Journey of Purification"},{level:54,name:"The Girl with the Dragon Tissue"},
+    {level:56,name:"The Dark Blight Writhes"},{level:58,name:"In the Wake of Death"},{level:58,name:"Trials of the Padjals"},
+    {level:60,name:"Hands of Healing"},{level:60,name:"Unease in East End"},{level:63,name:"An Aura for Trouble"},
+    {level:65,name:"A Beacon for Bad Things"},{level:68,name:"The Problem with Padjals"},{level:70,name:"What She Always Wanted"},{level:80,name:"Whence the Healing Springs"}
+  ],
+  Scholar: [
+    {level:1,name:"Way of the Arcanist"},{level:1,name:"My First Grimoire"},{level:5,name:"What's in the Box"},
+    {level:10,name:"Tactical Planning"},{level:15,name:"Topaz Teachings"},{level:15,name:"Over the Rails"},
+    {level:20,name:"Pincer Maneuver"},{level:25,name:"Grimoire Fandango"},{level:30,name:"Sinking Doesmaga"},
+    {level:30,name:"Forgotten but Not Gone"},{level:35,name:"The Last Remnants"},{level:40,name:"The Consequences of Anger"},
+    {level:45,name:"In the Image of the Ancients"},{level:45,name:"For Your Fellow Man"},{level:50,name:"The Beast Within"},
+    {level:50,name:"The Green Death"},{level:52,name:"Quarantine"},{level:54,name:"False Friends"},
+    {level:56,name:"Ooh Rah"},{level:58,name:"Unseen"},{level:60,name:"Forward, Royal Marines"},
+    {level:60,name:"The Vanishing Act"},{level:63,name:"A Safe Place to Hide"},{level:65,name:"In Loving Memory"},
+    {level:68,name:"The Chase"},{level:70,name:"Our Unsung Heroes"},{level:80,name:"True Beauty"}
+  ],
+  Astrologian: [
+    {level:30,name:"Fortune Favors the Bole"},{level:35,name:"Hanging in the Balance"},{level:40,name:"A Lesson in Patience"},
+    {level:40,name:"Slings and Arrows"},{level:45,name:"Ewer Right"},{level:50,name:"Loved by the Sun"},
+    {level:50,name:"Spearheading Initiatives"},{level:50,name:"Sharlayan Ascending"},{level:52,name:"Empty Nest"},
+    {level:54,name:"Conviction"},{level:56,name:"Feather in the Cap"},{level:58,name:"Trumped"},
+    {level:60,name:"The Hands of Fate"},{level:60,name:"East Meets West"},{level:63,name:"Ride Like the Wind"},
+    {level:65,name:"Come Rain or Shrine"},{level:68,name:"Behind Door Number Two"},{level:70,name:"Foxfire"},{level:80,name:"Love, Astrologically"}
+  ],
+  Sage: [
+    {level:70,name:"Sage's Path"},{level:70,name:"Sage's Focus"},{level:73,name:"Sands of Despair"},
+    {level:75,name:"A Poisoned Gift"},{level:78,name:"Pledge of Hope"},{level:80,name:"Life Ephemeral, Path Eternal"}
+  ],
+  Monk: [
+    {level:1,name:"Way of the Pugilist"},{level:1,name:"My First Hora"},{level:5,name:"Harder than Rock"},
+    {level:10,name:"Burning Up the Quarter Malm"},{level:15,name:"The Spirit Is Willing"},{level:20,name:"Keeping the Spirit Alive"},
+    {level:25,name:"Star-crossed Rivals"},{level:30,name:"Return of the Holyfist"},
+    {level:30,name:"Brother from Another Mother"},{level:35,name:"Insulted Intelligence"},{level:40,name:"A Slave to the Aether"},
+    {level:45,name:"The Pursuit of Power"},{level:45,name:"Good Vibrations"},{level:50,name:"Five Easy Pieces"},
+    {level:50,name:"The Legend Continues"},{level:52,name:"Let's Talk about Sects"},{level:54,name:"Against the Shadow"},
+    {level:56,name:"Fight the Battle to Win"},{level:58,name:"Stop the Senseless Killing"},{level:60,name:"Appetite for Destruction"},
+    {level:60,name:"A Fistful of Resolve"},{level:63,name:"Return of the Monk"},{level:65,name:"Cross-fist Training"},
+    {level:68,name:"Choices and Paths"},{level:70,name:"The Power to Protect"},{level:80,name:"A Monk's Legacy"}
+  ],
+  Dragoon: [
+    {level:1,name:"Way of the Lancer"},{level:1,name:"My First Spear"},{level:5,name:"Spear of the Fearless"},
+    {level:10,name:"Courage of Stone"},{level:15,name:"A Dangerous Proposition"},{level:20,name:"Lance of Destiny"},
+    {level:25,name:"Questions and Lancers"},{level:30,name:"Proof of Might"},
+    {level:30,name:"Eye of the Dragon"},{level:35,name:"Lance of Fury"},{level:40,name:"Unfading Skies"},
+    {level:45,name:"Double Dragoon"},{level:45,name:"Fatal Seduction"},{level:50,name:"Into the Dragon's Maw"},
+    {level:50,name:"Sky's the Limit"},{level:52,name:"Days of Azure"},{level:52,name:"Heart of Justice"},
+    {level:54,name:"Sworn Upon a Lance"},{level:56,name:"Dragoon's Errand"},{level:58,name:"Sanguine Dragoon"},
+    {level:60,name:"Dragoon's Fate"},{level:60,name:"Friends Through Eternity"},{level:63,name:"Drowsy Dragons"},
+    {level:65,name:"Serpent and the Sea of Rubies"},{level:68,name:"Dark as the Night Sky"},{level:70,name:"Dragon Sound"},{level:80,name:"Gone but Not Forgiven"}
+  ],
+  Ninja: [
+    {level:1,name:"My First Daggers"},{level:1,name:"Stabbers in Yer Fambles"},{level:5,name:"A Dainty Dilemma"},
+    {level:10,name:"Stray into the Shadows"},{level:15,name:"Stifled Screams"},{level:15,name:"Slave to the Code"},
+    {level:20,name:"Grinners in the Mist"},{level:25,name:"Sweet Sorrows"},{level:30,name:"Market for Death"},
+    {level:30,name:"Cloying Victory"},
+    {level:30,name:"Peasants by Day, Ninjas by Night"},{level:30,name:"My First Mudra"},{level:35,name:"Killer Combinations"},
+    {level:35,name:"Once Upon a Time in Doma"},{level:40,name:"Pirates versus Ninjas"},{level:40,name:"Ninja Bathin'"},
+    {level:45,name:"Tough Guys"},{level:45,name:"The Crow Knows"},{level:50,name:"Master and Student"},
+    {level:50,name:"Strangers in a Strange Land"},{level:52,name:"The Impossible Girl"},{level:54,name:"Ninja Assassin"},
+    {level:56,name:"Medieval Espionage"},{level:58,name:"Staying Alive"},{level:60,name:"In Her Defense"},
+    {level:60,name:"Search for the Stolen Scroll"},{level:63,name:"Ninja Bathin' Redux"},{level:65,name:"A Game of Life and Death"},
+    {level:68,name:"True Enlightenment"},{level:70,name:"When Clans Collide"},{level:80,name:"Oboro's Big Idea"}
+  ],
+  Samurai: [
+    {level:50,name:"The Way of the Samurai"},{level:50,name:"Master Musosai"},{level:52,name:"The Sands of Debt"},
+    {level:54,name:"Blood on the Deck"},{level:56,name:"A Fraudster in the Forest"},{level:58,name:"Tears in the Snow"},
+    {level:60,name:"The Face of True Evil"},{level:60,name:"A Dignified Visitor"},{level:63,name:"Trials of the Sekiseigumi"},
+    {level:65,name:"Matsuba Mayhem"},{level:68,name:"The Hunt for Ugetsu"},{level:70,name:"The Battle on Bekko"},{level:80,name:"The Legend of Musosai"}
+  ],
+  Reaper: [
+    {level:70,name:"The Killer Instinct"},{level:70,name:"The Harvest Begins"},{level:73,name:"On the Hunt"},
+    {level:75,name:"Dark Days"},{level:78,name:"Thicker than Blood"},{level:80,name:"The Killing Art"}
+  ],
+  Viper: [
+    {level:80,name:"Enter the Viper"},{level:80,name:"Fangs of the Viper"},{level:83,name:"Viper in the Vidraal's Shadow"},
+    {level:85,name:"Vipers on the Hunt"},{level:88,name:"Into the Viper Pit"},{level:90,name:"Vengeance of the Viper"}
+  ],
+  Bard: [
+    {level:1,name:"Way of the Archer"},{level:1,name:"My First Bow"},{level:5,name:"A Matter of Perspective"},
+    {level:10,name:"Training with Leih"},{level:15,name:"Violators Will Be Shot"},{level:20,name:"To Catch a Poacher"},
+    {level:25,name:"Homecoming"},{level:30,name:"The One That Got Away"},
+    {level:30,name:"A Song of Bards and Bowmen"},{level:35,name:"The Archer's Anthem"},{level:40,name:"Bard's-eye View"},
+    {level:45,name:"Doing It the Bard Way"},{level:45,name:"Pieces of the Past"},{level:50,name:"Requiem for the Fallen"},
+    {level:50,name:"On the Road Again"},{level:52,name:"The Stiff and the Spent"},{level:54,name:"Requiem on Ice"},
+    {level:56,name:"When Gnaths Cry"},{level:58,name:"A Saint of Song"},{level:60,name:"The Ballad of Oblivion"},
+    {level:60,name:"Three's a Company"},{level:63,name:"Masked Motives"},{level:65,name:"One Autumn's Secret"},
+    {level:68,name:"Sleeping Truths Lie"},{level:70,name:"Sweet Dreams Are Made of Peace"},{level:80,name:"A Harmony from the Heavens"}
+  ],
+  Machinist: [
+    // The unlock asks for level 50 on another job; listed at 30, where Machinist starts,
+    // so a Machinist can never show it as "missed" or "future".
+    {level:30,name:"Savior of Skysteel"},
+    {level:30,name:"Master of Marksmanship"},{level:35,name:"Always the Last Place You Look"},{level:40,name:"Rook Before You Reap"},
+    {level:40,name:"Securing the Locks"},{level:45,name:"A Suppressive Strategy"},{level:45,name:"Blood on the Sands"},
+    {level:50,name:"Rage against the Machinists"},{level:50,name:"The Power of a Tourney"},{level:50,name:"A Joye-less Celebration"},
+    {level:52,name:"Pushing the Brume"},{level:54,name:"A Joye-ful Reunion"},{level:56,name:"Wheels of Justice"},
+    {level:58,name:"Taking the Fall"},{level:58,name:"Rusted Steel"},{level:60,name:"Rise of the Machinists"},
+    {level:60,name:"The Machinists' Choice"},{level:63,name:"The Hrunting Heist"},{level:65,name:"Release the Hounds"},
+    {level:68,name:"Snouts Down, Tails Up"},{level:70,name:"The Mongrel and the Knight"},{level:80,name:"Machinists for the Morrow"}
+  ],
+  Dancer: [
+    {level:60,name:"Shall We Dance"},{level:60,name:"Gamboling for Gil"},{level:63,name:"A Soirée in the Sultanate"},
+    {level:65,name:"Dances with Duskwights"},{level:68,name:"High-steppin' in the Holy See"},{level:70,name:"Save the Last Dance for Me"},{level:80,name:"Rising to the Occasion"}
+  ],
+  "Black Mage": [
+    {level:1,name:"Way of the Thaumaturge"},{level:1,name:"My First Scepter"},{level:5,name:"The Threat of Intimacy"},
+    {level:10,name:"The Threat of Paucity"},{level:15,name:"The Threat of Superiority"},{level:20,name:"The Threat of Perplexity"},
+    {level:25,name:"The Hidden Chapter"},{level:30,name:"Facing Your Demons"},
+    {level:30,name:"Taking the Black"},{level:35,name:"You'll Never Go Back"},{level:40,name:"International Relations"},
+    {level:45,name:"The Voidgate Breathes Gloomy"},{level:45,name:"The Blood Must Flow"},{level:50,name:"Always Bet on Black"},
+    {level:50,name:"Black Books"},{level:52,name:"An Unexpected Journey"},{level:54,name:"A Cunning Plan"},
+    {level:56,name:"Black Squawk Down"},{level:58,name:"Destruction in the Name of Justice"},{level:60,name:"The Defiant Ones"},
+    {level:60,name:"Shades of Shatotto"},{level:63,name:"Golems Gone Wild"},{level:65,name:"When the Golems Get Tough"},
+    {level:68,name:"Unnatural Selection"},{level:70,name:"One Golem to Rule Them All"},{level:80,name:"A Home for a Tome"}
+  ],
+  Summoner: [
+    {level:1,name:"Way of the Arcanist"},{level:1,name:"My First Grimoire"},{level:5,name:"What's in the Box"},
+    {level:10,name:"Tactical Planning"},{level:15,name:"Topaz Teachings"},{level:15,name:"Over the Rails"},
+    {level:20,name:"Pincer Maneuver"},{level:25,name:"Grimoire Fandango"},{level:30,name:"Sinking Doesmaga"},
+    {level:30,name:"Austerities of Flame"},{level:35,name:"Austerities of Earth"},{level:40,name:"Shadowing the Summoner"},
+    {level:45,name:"Allagan Attire"},{level:45,name:"Austerities of Wind"},{level:50,name:"Primal Burdens"},
+    {level:50,name:"A Fitting Tomestone"},{level:52,name:"A Matter of Fact"},{level:54,name:"A Miner Negotiation"},
+    {level:56,name:"Mad, Bad, and Ebon-clad"},{level:58,name:"I Could Have Tranced All Night"},{level:60,name:"A Flare for the Dramatic"},
+    {level:60,name:"A Book with Bite"},{level:63,name:"Performing for Prin"},{level:65,name:"An Egi-stential Crisis"},
+    {level:68,name:"Off the Record"},{level:70,name:"An Art for the Living"},{level:80,name:"To Be Second Best"}
+  ],
+  "Red Mage": [
+    {level:50,name:"Taking the Red"},{level:50,name:"The Crimson Duelist"},{level:52,name:"A Rewarding Struggle"},
+    {level:54,name:"Tracking the Cabal"},{level:56,name:"A Vermilion Vendetta"},{level:58,name:"On Lambard's Trail"},
+    {level:60,name:"Stained in Scarlet"},{level:60,name:"The Color of Her Hair"},{level:63,name:"Traced in Blood"},
+    {level:65,name:"Nightkin"},{level:68,name:"Child of Lilith"},{level:70,name:"With Heart and Steel"},{level:80,name:"Succession of Steel"}
+  ],
+  Pictomancer: [
+    {level:80,name:"The Joy of Pictomancy"},{level:80,name:"Mind over Manor"},{level:83,name:"Perspectives in Pursuit"},
+    {level:85,name:"The Crate Beyond"},{level:88,name:"Beruru's Clues"},{level:90,name:"Somewhere Only She Knows"}
+  ],
+  "Blue Mage": [
+    {level:1,name:"Blue Leading the Blue"},{level:10,name:"Blue Collar Work"},{level:20,name:"Why They Call It the Blues"},
+    {level:30,name:"Scream Blue Murder"},{level:40,name:"Blue Gold"},{level:50,name:"Out of the Blue"},
+    {level:50,name:"The Real Folk Blues"},{level:50,name:"Turning Over a Blue Leaf"},{level:50,name:"Into the Blue Again"},
+    {level:53,name:"Something Borrowed, Something Blue"},{level:55,name:"Bolt from the Blue"},{level:58,name:"Blue in the Face"},
+    {level:60,name:"Blue Scream of Death"},{level:60,name:"Blue Cheese"},{level:65,name:"Azuro and Goliath"},
+    {level:68,name:"Where the Gold Goes"},{level:70,name:"Master of Mimicry"},{level:70,name:"A Future in Blue"},
+    {level:80,name:"A New Gold Standard"},{level:80,name:"The Brave and the Blue"}
+  ],
+  // From the game's Quest sheet (genre "Beastmaster Quests"), patch 7.56: the ten the journal
+  // files under Class & Job Quests. Three more Beastmaster quests sit under Other Quests and
+  // are not listed. The unlock asks for level 50 on another job; listed at 1 for the same
+  // reason as Machinist's.
+  Beastmaster: [
+    {level:1,name:"Strangers in the Wood"},{level:1,name:"The Wilds Call"},{level:8,name:"Hearts Aligned"},
+    {level:18,name:"Master of the Lhu"},{level:30,name:"Into the Crucible"},{level:30,name:"Wit as Weaponry"},
+    {level:40,name:"Gobsmacked"},{level:40,name:"Sin of Blood"},{level:50,name:"A Beastmaster's Path"},
+    {level:50,name:"Bonds Unbroken"}
+  ]
+};
+// Which shared role-quest chain each combat job draws on.
+const JOB_ROLE = {
+  Paladin:"tank", Warrior:"tank", "Dark Knight":"tank", Gunbreaker:"tank",
+  "White Mage":"healer", Scholar:"healer", Astrologian:"healer", Sage:"healer",
+  Monk:"melee", Dragoon:"melee", Ninja:"melee", Samurai:"melee", Reaper:"melee", Viper:"melee",
+  Bard:"ranged", Machinist:"ranged", Dancer:"ranged",
+  "Black Mage":"caster", Summoner:"caster", "Red Mage":"caster", Pictomancer:"caster"
+  // Blue Mage has no role quests — it's excluded from the role quest system entirely.
+};
+// Viper and Pictomancer don't exist below level 80, so they never pass through the
+// Shadowbringers bracket (71-80) as that job — skip straight to Endwalker/Dawntrail.
+const JOB_ROLE_FLOOR = { Viper:80, Pictomancer:80 };
+// Which pool of completion state a role's quests share, per bracket. Shadowbringers runs
+// melee and physical ranged as ONE combined "Physical DPS" chain (same quests, same NPCs) —
+// clearing it on any melee or ranged job clears it for all of them. Endwalker/Dawntrail split
+// back into separate melee/ranged chains. Tank/caster/healer never combine with anything.
+const ROLE_TRACK_KEY = {
+  shb: { tank:"tank", melee:"physDPS", ranged:"physDPS", caster:"caster", healer:"healer" },
+  ew:  { tank:"tank", melee:"melee",   ranged:"ranged",  caster:"caster", healer:"healer" },
+  dt:  { tank:"tank", melee:"melee",   ranged:"ranged",  caster:"caster", healer:"healer" }
+};
+// Known gap: role quests actually gate on MSQ progress into that expansion, not just job
+// level. A job hitting 70 while still finishing Stormblood's post-MSQ content (i.e. before
+// setting foot in Shadowbringers) will show its bracket-70 role quest as "missed" a little
+// early, since level is all this tracker has to go on. Not fixable without tracking exact
+// MSQ position, which isn't data this app collects.
+
+// Dawntrail's role-quest prologue: one quest per character that opens all five chains, so it
+// is listed first in each and shares one completion state ("track" overrides the role's own).
+const DT_ROLE_PROLOGUE = {level:90,name:"Uncouth Customers",track:"dtPrologue"};
+const ROLE_QUESTS = {
+  shb: {
+    tank:   [{level:70,name:"The Man with Too Many Scars"},{level:72,name:"Shaped by Tragedy"},{level:74,name:"Defined by Loss"},{level:76,name:"The Princess and Her Knight"},{level:78,name:"The Hardened Heart"},{level:80,name:"To Have Loved and Lost"}],
+    melee:  [{level:70,name:"No Greater Sport"},{level:72,name:"Vengeance in Defeat"},{level:74,name:"Freedom from Privilege"},{level:76,name:"The Hunter's Legacy"},{level:78,name:"Fellowship Restored"},{level:80,name:"Courage Born of Fear"}],
+    ranged: [{level:70,name:"No Greater Sport"},{level:72,name:"Vengeance in Defeat"},{level:74,name:"Freedom from Privilege"},{level:76,name:"The Hunter's Legacy"},{level:78,name:"Fellowship Restored"},{level:80,name:"Courage Born of Fear"}],
+    caster: [{level:70,name:"Hollow Pursuits"},{level:72,name:"A Voice from the Void"},{level:74,name:"Echoes of the Past"},{level:76,name:"Nyelbert's Lament"},{level:78,name:"Taynor's Training Day"},{level:80,name:"A Tearful Reunion"}],
+    healer: [{level:70,name:"Traditions and Travails"},{level:72,name:"Affronts and Allies"},{level:74,name:"The Scientific Method"},{level:76,name:"The Lost and the Found"},{level:78,name:"Never to Return"},{level:80,name:"The Soul of Temperance"}]
+  },
+  ew: {
+    tank:   [{level:85,name:"Shrouded in Peril"},{level:86,name:"To Give Voice"},{level:87,name:"A Gift Undone"},{level:88,name:"A Pact Proven"},{level:89,name:"Hearts True"},{level:90,name:"A Path Unveiled"}],
+    melee:  [{level:85,name:"Storm Clouds Brewing"},{level:86,name:"The Crushing Tide"},{level:87,name:"Old Heroes Never Die"},{level:88,name:"A Mother's Suffering"},{level:89,name:"Out of the Shadows"},{level:90,name:"To Calmer Seas"}],
+    ranged: [{level:85,name:"Seeds of Disquiet"},{level:86,name:"When the Kami Answer"},{level:87,name:"Home No Longer"},{level:88,name:"The Devoted Daughter"},{level:89,name:"A Singular Gift"},{level:90,name:"Laid to Rest"}],
+    caster: [{level:85,name:"Our Aching Souls"},{level:86,name:"No Forgiveness, No Deliverance"},{level:87,name:"Only Justice, Only Vengeance"},{level:88,name:"Wills Unending, Faith Unbending"},{level:89,name:"O Mighty Fury, Guide Us to Victory"},{level:90,name:"Ever March Heavensward"}],
+    healer: [{level:85,name:"Far from Free"},{level:86,name:"The Butcher's Blade"},{level:87,name:"A New Battleground"},{level:88,name:"Laying the Past to Rest"},{level:89,name:"Trail of Skulls"},{level:90,name:"The Gift of Mercy"}]
+  },
+  dt: {
+    tank:   [DT_ROLE_PROLOGUE,{level:90,name:"The Narwhal Beckons"},{level:92,name:"Sleepless in Ishgard"},{level:94,name:"Between Sleep and Death"},{level:96,name:"Beacon in the Darkness"},{level:98,name:"Awakened, Not Stirred"},{level:100,name:"Dreams of a New Day"}],
+    melee:  [DT_ROLE_PROLOGUE,{level:90,name:"The Hunter and the Hunted"},{level:92,name:"A Sea of Blood"},{level:94,name:"Who's Who"},{level:96,name:"Cornered Prey"},{level:98,name:"Impostor Syndrome"},{level:100,name:"A Hunter True"}],
+    ranged: [DT_ROLE_PROLOGUE,{level:90,name:"To Steal a Steelhog"},{level:92,name:"Bandits Abound"},{level:94,name:"Take Me to Your Leader"},{level:96,name:"The Milk of Mamool Ja Kindness"},{level:98,name:"Ally in the Alley"},{level:100,name:"The Mightiest Shield"}],
+    caster: [DT_ROLE_PROLOGUE,{level:90,name:"Power Forgotten"},{level:92,name:"A Brand of Justice"},{level:94,name:"The Seeds of Popularity"},{level:96,name:"Floundering Fame"},{level:98,name:"Behind the Helm"},{level:100,name:"Heroes and Pretenders"}],
+    healer: [DT_ROLE_PROLOGUE,{level:90,name:"In the Sting of Things"},{level:92,name:"Causing Problems on Purpose"},{level:94,name:"Living among the Deadly"},{level:96,name:"Taste of a Toxin Paradise"},{level:98,name:"Downed by the River"},{level:100,name:"An Antidote for Anarchy"}]
+  }
+};
+
+// DoH/DoL past 70: the delivery hubs that replace class quests — the Crystalline Mean (ShB),
+// the Studium (EW) and Wachumeqimeqi (DT). Sourced from the local wiki dump's per-facet quest
+// lists; every id is in TM's quest-patches.json under Class & Job Quests, so the classQuests
+// export already carries them. Same shape as ROLE_QUESTS: one chain per job group, done once
+// for every job in it, so the hub quests ride the role-quest storage keys ("role:hubForging").
+//
+// Each hub opens with one quest for every crafter and gatherer, shared like DT_ROLE_PROLOGUE.
+// Dawntrail also closes with one: Appreciated Value (7.15) wants all five shop chains and the
+// MSQ's Crossroads, so it sits at 100 on every DoH/DoL job.
+const HUB_OPENER = {
+  shb: {level:70, name:"The Crystalline Mean",       track:"hubShbOpener"},
+  ew:  {level:80, name:"The Faculty",                track:"hubEwOpener"},
+  dt:  {level:90, name:"Wrought in Wachumeqimeqi",   track:"hubDtOpener"}
+};
+const HUB_DT_FINALE = {level:100, name:"Appreciated Value", track:"hubDtFinale"};
+const JOB_HUB = {
+  Blacksmith:"forging", Armorer:"forging", Goldsmith:"forging",
+  Carpenter:"crafting", Leatherworker:"crafting", Weaver:"crafting",
+  Alchemist:"nourishing", Culinarian:"nourishing",
+  Miner:"gathering", Botanist:"gathering",
+  Fisher:"fishing"
+};
+const HUB_TRACK_KEY = { forging:"hubForging", crafting:"hubCrafting", nourishing:"hubNourishing", gathering:"hubGathering", fishing:"hubFishing" };
+const HUB_QUESTS = {
+  shb: {  // Crystalline Mean facets
+    forging:    [{level:70,name:"Iola, Forgemaster"},{level:75,name:"To Struggle Nu Mou"},{level:80,name:"The Iron Bellows"}],
+    crafting:   [{level:70,name:"Cherished Memories"},{level:75,name:"For Sentimental Reasons"},{level:80,name:"The Notes of Bond Restoring"}],
+    nourishing: [{level:70,name:"Friends of a Feather"},{level:75,name:"Where We Belong"},{level:80,name:"Healing Old Wounds"}],
+    gathering:  [{level:70,name:"On the Trail of a Myth"},{level:75,name:"Shedding Light on the Myth"},{level:80,name:"The Myth Takes Form"}],
+    fishing:    [{level:70,name:"Well Eel Be Damned"},{level:75,name:"Fishing for Confidence"},{level:80,name:"Morsel of the Deep"}]
+  },
+  ew: {  // Studium faculties
+    forging:    [{level:80,name:"Professor Rurusha's New Friend"},{level:80,name:"The Dormant Dhyata"},{level:83,name:"Gears of Gold"},{level:85,name:"Rubbished Research"},{level:85,name:"Boric's Choice"},{level:88,name:"A Friend in Need"},{level:90,name:"Wayback Machine"}],
+    crafting:   [{level:80,name:"In Search of the Azure Star"},{level:80,name:"The World without You"},{level:83,name:"Poetry Recital"},{level:85,name:"One Step Forward"},{level:85,name:"A Ten-year Promise"},{level:88,name:"An Astronomical Growth"},{level:90,name:"The Promised Star"}],
+    nourishing: [{level:80,name:"Perfectly Awful"},{level:80,name:"Make It Sweeter"},{level:83,name:"Remember the Texture"},{level:85,name:"Aroma Is Key"},{level:85,name:"Long Live the Gourmet"},{level:88,name:"Perfectly Delectable"},{level:90,name:"Sharlayan Cuisine"}],
+    gathering:  [{level:80,name:"Cultured Pursuits"},{level:80,name:"Cooking Up a Culture"},{level:83,name:"The Culture of Ceruleum"},{level:85,name:"The Culture of Carrots"},{level:85,name:"Hinageshi in Hingashi"},{level:88,name:"The Culture of the Past"},{level:90,name:"The Culture of Love"}],
+    fishing:    [{level:80,name:"Fear the Thesis"},{level:80,name:"Go with the Flow"},{level:83,name:"Data across the Decades"},{level:85,name:"History Lesson"},{level:85,name:"The Wandering Whale"},{level:88,name:"Fish Time Forgot"},{level:90,name:"Pastures New"}]
+  },
+  dt: {  // Wachumeqimeqi shops
+    forging:    [{level:90,name:"Your Friendly Neighborhood Metalworker"},{level:90,name:"Hard to Reed"},{level:93,name:"Hey, Aunt Tii"},{level:95,name:"A Job Quickly Done"},{level:95,name:"Teamwork Makes the Craftwork"},{level:98,name:"A New Kind of Metalware"},{level:100,name:"A Dream Come True"}],
+    crafting:   [{level:90,name:"Pameka, the Scrivener"},{level:90,name:"Hanu Opportunities"},{level:93,name:"This Little Pelu"},{level:95,name:"Oldton Roads"},{level:95,name:"Written in Stone"},{level:98,name:"Reaching for the Sky"},{level:100,name:"A Place in the Sun"}],
+    nourishing: [{level:90,name:"Blame It on My Juice"},{level:90,name:"Mon Cherimoya"},{level:93,name:"A Drink for Everymobbie"},{level:95,name:"Halnaruk the Helphand"},{level:95,name:"The Missing Drink"},{level:98,name:"Good Hydrations"},{level:100,name:"Three Cheers for Sweet Juice"}],
+    gathering:  [{level:90,name:"Hands for Hire"},{level:90,name:"Test of Talents"},{level:93,name:"A Discerning Eye"},{level:95,name:"As Nature Intends"},{level:95,name:"The Cycle of Life"},{level:98,name:"Digging Up the Truth"},{level:100,name:"Wellspring of Tears"}],
+    fishing:    [{level:90,name:"Fishmonger Blues"},{level:90,name:"When Wishes Are Fishes"},{level:93,name:"Scaling Up Demand"},{level:95,name:"Big Body, Big Beauty"},{level:95,name:"Donuhanu's Devotion"},{level:98,name:"Catching Breath"},{level:100,name:"An Odd Fish Odyssey"}]
+  }
+};
+// Every hub quest a DoH/DoL job draws on, opener first and the Dawntrail finale last, each
+// tagged with the trackKey its completion state lives under.
+function hubQuestsFor(job){
+  const hub = JOB_HUB[job];
+  if(!hub) return [];
+  return ['shb','ew','dt'].flatMap(exp => {
+    const list = [HUB_OPENER[exp], ...HUB_QUESTS[exp][hub]];
+    if(exp === 'dt') list.push(HUB_DT_FINALE);
+    return list.map(q => ({...q, trackKey: q.track || HUB_TRACK_KEY[hub]}));
+  });
+}
+// Every role-quest bracket that applies to a job, in level order, respecting JOB_ROLE_FLOOR.
+// Each returned quest carries its own trackKey — melee/ranged quests in the Shadowbringers
+// bracket both come back tagged "physDPS" so their completion state is shared; the same
+// quests in Endwalker/Dawntrail come back tagged "melee"/"ranged" since those don't share.
+function roleQuestsFor(job){
+  const role = JOB_ROLE[job];
+  if(!role) return hubQuestsFor(job);
+  const floor = JOB_ROLE_FLOOR[job] || 1;
+  return ['shb','ew','dt'].flatMap(exp => {
+    const list = ROLE_QUESTS[exp][role];
+    // These chains are sequential — a job that doesn't exist yet when a bracket opens
+    // (Viper/Pictomancer skip Shadowbringers entirely) never gets access to any of it,
+    // not just the entries below its floor.
+    if(list[0].level < floor) return [];
+    return list.map(q => ({...q, trackKey: q.track || ROLE_TRACK_KEY[exp][role]}));
+  });
+}
+function missedJobQuests(job, level, doneMap){
+  const list = JOB_QUESTS[job] || [];
+  const done = (doneMap && doneMap[job]) || {};
+  const ownMissed = list.filter(q => q.level <= level && !done[q.name]);
+  const roleList = roleQuestsFor(job);
+  if(!roleList.length) return ownMissed;
+  const roleMissed = roleList.filter(q => q.level <= level && !((doneMap && doneMap['role:'+q.trackKey]) || {})[q.name]);
+  return ownMissed.concat(roleMissed);
+}
+
+// "Overall" is a roll-up: sub-categories should sum to it on both the done and total side.
+// Totals are editable per-character (Edit totals button) since they grow with patches.
+// Read off the in-game Overview tab on 13/09/2026, on a 7.56 client. That reading also
+// corrected Sidequests, which sat at 1987 here from before and is really 1986 — the one
+// figure that was wrong rather than merely out of date.
+const QUEST_CATS = [
+  ["overall","Overall",6485],
+  ["msq","Main scenario",995],
+  ["era","Chronicles of a New Era",192],
+  ["side","Sidequests",1986],
+  ["allied","Allied Society",716],
+  ["class","Class & Job Quests",858],
+  ["leve","Levequests",1738]
+];
+const SUB_CATS = QUEST_CATS.filter(([key])=>key!=='overall');
+
+// Sourced from ffxiv.consolegameswiki.com's Main Scenario Quests overview table, grouped
+// the way the QuestTracker plugin itself groups them (initial release + every "post-X"
+// continuation through the next expansion's start — confirmed against a real screenshot
+// showing Stormblood at 122/162, which is exactly 122 initial + 40 post-Stormblood).
+// "A Realm Reborn" here is two wiki arcs combined — Seventh Umbral Era (160-161,
+// starting-city/GC-dependent) + Seventh Astral Era (80, fixed) = 240 or 241. ARR's total
+// is deliberately editable: summing all six with 240 gives exactly 995, with 241 giving
+// exactly 996 — both independently confirmed against the plugin's real numbers, so this
+// checks out rather than being assumed. Dawntrail carries patch 7.56's four new quests
+// (A Winter's Dream through Windborne), which is why it reads 143 and not 139.
+const MSQ_EXPANSIONS = [
+  ["arr","A Realm Reborn",240],
+  ["hw","Heavensward",138],
+  ["stb","Stormblood",162],
+  ["shb","Shadowbringers",157],
+  ["ew","Endwalker",155],
+  ["dt","Dawntrail",143]
+];
+
+// Every reset is a fixed instant in UTC (SE's own convention: GMT reference regardless of
+// player DST). Edit/extend this list when 8.0 reworks resets (2027-02-23) — no other code
+// changes needed, every routine just points at whichever schedule id you pick.
+const RESET_SCHEDULES = [
+  { id:'daily15',   kind:'daily',    hour:15,            label:'Daily · 15:00 UTC — roulettes, Allied Society' },
+  { id:'daily20',   kind:'daily',    hour:20,            label:'Daily · 20:00 UTC — GC supply, Squadron' },
+  { id:'daily09',   kind:'daily',    hour:9,             label:'Daily · 09:00 UTC — Cosmic Exploration' },
+  { id:'every12h',  kind:'interval', hours:12,           label:'Every 12h · 00:00 / 12:00 UTC — leve allowances' },
+  { id:'weeklyTue', kind:'weekly',   weekday:2, hour:8,  label:'Weekly · Tuesday 08:00 UTC — Challenge Log, raids' },
+  { id:'weeklySat', kind:'weekly',   weekday:0, hour:2,  label:'Weekly · Sat→Sun 02:00 UTC — Jumbo Cactpot draw (NA time; EU/JP/OCE draw a few hours earlier)' },
+  { id:'monthly1',  kind:'monthly',  day:1,     hour:8,  label:'Monthly · 1st 08:00 UTC' },
+  { id:'cooldown18h', kind:'cooldown', hours:18, label:"18h from last click — matches your own last dispatch/click, not a shared clock" }
+];
+const DAY_MS = 86400000;
+const ACCENTS = ['gold','teal','rose'];
+
+// The 80 weekly challenges by category, from ffxiv.consolegameswiki.com's Challenge Log
+// page (patch 7.51). Surfaced through the info button on each category row: "Battles"
+// means nothing on its own, but "the two guildhest ones" is what people actually look for.
+// Not individually tickable. Eighty checkboxes is a spreadsheet, not a reset tracker, and
+// the weekly tick on the row is the unit this list is for.
+// The 18 cumulative "Up for a Challenge" milestones are deliberately absent: they never
+// reset, so they are not weekly challenges at all.
+const CHALLENGE_LOG = {
+  'challenge-battles': [
+    ['Feeling Lucky', 'Complete 3 dungeons (or Alliance Raids) via the Duty Roulette.'],
+    ['Dungeon Master', 'Complete 5 dungeons.'],
+    ['You\'re the Hest Around I', 'Complete 3 guildhests.'],
+    ['You\'re the Hest Around II', 'Complete 10 guildhests'],
+    ['Exercising the Right', 'Vote 5 times in player commendation.'],
+    ['Bosom Buddies I', 'Defeat 20 enemies of comparable level to your own with your companion.'],
+    ['Bosom Buddies II', 'Defeat 100 enemies of comparable level to your own with your companion.'],
+    ['Tails of Derring-do Bad and Good Luck', 'Complete and mark off 3 Wondrous Tails.'],
+  ],
+  'challenge-pvp': [
+    ['A Wolf in Your Belly', 'Participate in 10 Crystalline Conflict matches.'],
+    ['Thrown to the Wolves', 'Triumph in 3 Crystalline Conflict matches.'],
+    ['Line Up', 'Participate in 7 Frontline campaigns.'],
+    ['In the Line of Fire', 'Lead your company to victory in 3 Frontline campaigns.'],
+    ['Prepare to Dice', 'Participate in 10 Rival Wings campaigns.'],
+    ['Luck Be a Lady Tonight', 'Lead your alliance to victory in 5 Rival Wings campaigns.'],
+  ],
+  'challenge-fate': [
+    ['In Your FATE I', 'Complete 5 FATEs with the highest rating possible.'],
+    ['In Your FATE II', 'Complete 10 FATEs with the highest rating possible.'],
+  ],
+  'challenge-leves': [
+    ['Just Leve It to Me', 'Complete 5 Levequests with different leve plates.'],
+    ['Making Like a Tree', 'Complete 20 levequests.'],
+  ],
+  'challenge-crafting': [
+    ['Craft Up a Storm', 'Craft 30 Items.'],
+    ['Craft Up a Storm', 'Craft 20 high-quality Items.'],
+    ['My Big Break', 'Successfully desynthesize 5 items.'],
+    ['The Gathering Storm', 'Successfully gather items of comparable level to your own 100 times.'],
+    ['A Boon from Nature', 'Successfully trigger the Gatherer\'s Boon effect while gathering items of comparable level to your own 30 times.'],
+    ['Hooked on the Reeling', 'Catch 30 fish.'],
+    ['Catch of the Day', 'Catch 10 large-sized fish'],
+    ['Spear Me', 'Spear 50 fish.'],
+    ['Spear No Effort', 'Spear 20 large-sized fish.'],
+    ['The Customer Is Always Right', 'Complete 6 custom deliveries.'],
+  ],
+  'challenge-treasure': [
+    ['X Marks the Spot', 'Gather 3 timeworn maps.'],
+    ['Find Your Treasure and Have It Too', 'Open 5 treasure coffers and obtain their contents while treasure hunting.'],
+    ['Aqua Gleam Hunter Force I', 'Open 5 treasure coffers in treasure dungeon vaults.'],
+  ],
+  'challenge-society': [
+    ['Improving Society Somewhat I', 'Complete 5 Allied Society quests.'],
+    ['Improving Society Somewhat II', 'Complete 15 Allied Society quests.'],
+  ],
+  'challenge-gc': [
+    ['Give \'Em What They Want', 'Complete 5 supply and provisioning missions.'],
+    ['Give \'Em What They Want II', 'Complete 10 supply and provisioning missions.'],
+    ['Master and Commander', 'Successfully complete 3 command missions.'],
+  ],
+  'challenge-ventures': [
+    ['Venture Capital', 'Have a retainer complete 10 ventures.'],
+    ['Venture Bothers', 'Have a retainer complete 15 exploration ventures (not Quick Exploration).'],
+  ],
+  'challenge-goldsaucer': [
+    ['Size Doesn\'t Matter', 'Complete 3 mini-games.'],
+    ['From Small Things', 'Earn 100 MGP from mini-games.'],
+    ['Open the Gates', 'Participate in 5 GATEs.'],
+    ['Close the Gates', 'Successfully complete 3 GATEs.'],
+    ['To the Races I', 'Enter 3 chocobo races.'],
+    ['To the Races II', 'Enter 20 chocobo races.'],
+    ['Victory Lap I', 'Win a chocobo race.'],
+    ['Victory Lap II', 'Win 10 chocobo races.'],
+    ['Always in Threes', 'Play Triple Triad 10 times.'],
+    ['A Winner Is You', 'Win 10 Triple Triad matches.'],
+    ['Cards in the Hall', 'Play 5 Triple Triad matches in the Battlehall.'],
+    ['Triple Tumble', 'Win 3 Triple Triad matches in the Battlehall.'],
+    ['Come on in, It\'s Open', 'Participate in an Open tournament and receive your reward.'],
+    ['Come Play Lord I', 'Play Lord of Verminion 1 time.'],
+    ['Come Play Lord II', 'Play Lord of Verminion 3 times.'],
+    ['Come Play Lord III', 'Play Lord of Verminion 5 times.'],
+    ['Kiwami', 'Participate in 2 Doman Mahjong player battle matches.'],
+  ],
+  'challenge-fieldops': [
+    ['Occult Interloping I', 'Defeat 30 monsters with a knowledge level equal to or higher than your own.'],
+    ['Occult Interloping II', 'Defeat 60 monsters with a knowledge level equal to or higher than your own.'],
+    ['Critically Endangered I', 'Complete 8 encounters on the Occult Crescent.'],
+    ['Critically Endangered II', 'Complete 15 encounters on the Occult Crescent.'],
+    ['Fateful Contention I', 'Complete 10 FATEs on the Occult Crescent.'],
+    ['Fateful Contention II', 'Complete 20 FATEs on the Occult Crescent.'],
+    ['Make It Chain I', 'Achieve an EXP chain of 20 on the Occult Crescent.'],
+    ['Make It Chain II', 'Achieve an EXP chain of 40 on the Occult Crescent.'],
+    ['Forbidden Ice, Forbidden Lightning I', 'Defeat 30 ice- or lightning-aspected enemies no more than two elemental levels below your own.'],
+    ['Forbidden Ice, Forbidden Lightning II', 'Defeat 60 ice- or lightning-aspected enemies no more than two elemental levels below your own.'],
+    ['Forbidden Fire, Forbidden Earth I', 'Defeat 30 fire- or earth-aspected enemies no more than two elemental levels below your own.'],
+    ['Forbidden Fire, Forbidden Earth II', 'Defeat 60 fire- or earth-aspected enemies no more than two elemental levels below your own.'],
+    ['Forbidden Water, Forbidden Wind I', 'Defeat 30 water- or wind-aspected enemies no more than two elemental levels below your own.'],
+    ['Forbidden Water, Forbidden Wind II', 'Defeat 60 water- or wind-aspected enemies no more than two elemental levels below your own.'],
+    ['Forbidden Bone, Forbidden Ash I', 'Defeat 20 ashkin in Eureka with an elemental level equal to, or higher than your own.'],
+    ['Forbidden Bone, Forbidden Ash II', 'Defeat 40 ashkin in Eureka with an elemental level equal to, or higher than your own.'],
+    ['Forbidden Elements I', 'Defeat 10 elementals in Eureka with an elemental level equal to, or higher than your own.'],
+    ['Forbidden Elements II', 'Defeat 20 elementals in Eureka with an elemental level equal to, or higher than your own.'],
+  ],
+  'challenge-deep': [
+    ['Take Me to Church I', 'Clear the area marked by stone 20 in Pilgrim\'s Traverse.'],
+    ['Take Me to Church II', 'Clear the area marked by stone 30 in Pilgrim\'s Traverse.'],
+    ['Take Me to Church III', 'Clear the area marked by stone 50 in Pilgrim\'s Traverse.'],
+    ['Take Me to Church IV', 'Clear the area marked by stone 70 in Pilgrim\'s Traverse.'],
+    ['Take Me to Church V', 'Clear the area marked by stone 100 in Pilgrim\'s Traverse.'],
+  ],
+  'challenge-island': [
+    ['Living off the Land', 'Collect 100 materials in your island sanctuary.'],
+    ['Making a Living off the Land', 'Ship 20 isleworks handicrafts.'],
+  ],
+};
+
+// Sourced from ffxiv.consolegameswiki.com's Daily and Weekly Checklist page. Seeded onto
+// every new character so the known list is there from the start — hide (not delete)
+// whatever doesn't apply to you, same idea as Haven's "I'd never do Faux Hollows as Grey."
+// `requires` is pre-filled from the wiki's own Unlock/Requirements sections, walked back
+// to the main scenario quest each feature actually sits behind. It is the MSQ patch you
+// must be at, NOT the patch the content shipped in — Faux Hollows arrived in 5.3 but only
+// asks for Shadowbringers, so it reads 5.0. Getting that backwards would hide content from
+// people who can already do it.
+// Every value is the plain patch of the gating quest, never nudged up or down. WHICH of the
+// two MSQ figures it is measured against is SEED_CLEARED_GATES' job, further down — don't
+// encode that distinction by fudging the number.
+// Blank means "no main scenario gate worth expressing". Everything that resolved to 2.0 is
+// left blank deliberately: a Grand Company rank, an Envoy quest or "The Ultimate Weapon"
+// gates nobody who has a patch number to type, and writing 2.0 into twenty rows would bury
+// the gates that matter. Level requirements are not MSQ gates and aren't encoded here
+// either — Wondrous Tails wants level 60 as well as 3.0, and the level half stays yours.
+// Checked and deliberately left blank: Duty Roulette, Tank You, Treasure Hunt, Retainer
+// Ventures, Mini/Jumbo Cactpot, Fashion Report, Challenge Log, Grand Company turn-in,
+// Squadron training and missions, the ARR Hunt rows, Masked Carnivale (Blue Mage asks only
+// for "The Ultimate Weapon"), Morbid Motivation (Zodiac, level 50), Allied Society
+// (earliest tribe is Amalj'aa, behind the 2.0 MSQ "In Pursuit of the Past").
+// Capping tomestones was on that list and is not any more: the current tomestone cannot be
+// capped until the newest expansion's main scenario is finished. When the next expansion
+// ships, the row's gate moves with it, along with the tomestone name in its label.
+// Schedule mapping is best-effort where the source didn't map cleanly to a fixed reset:
+// Squadron Training and Retainer Ventures run on their own per-action timers, approximated
+// to the closest fixed daily reset — adjust the dropdown per-item if the timing bugs you.
+// Jumbo Cactpot was originally miscoded onto the standard Tuesday weekly reset — it's
+// actually its own Saturday drawing (weeklySat), and the exact clock time is per-data-center,
+// not global; weeklySat is calibrated to North America's draw time specifically.
+// Treasure Hunt is a real 18h personal cooldown starting from whenever you last clicked
+// it (cooldown18h), not tied to any fixed UTC reset at all.
+// "Windurst: The Third Walk" (FFXI-crossover alliance raid) is included — real content,
+// not a wiki error. "YoRHa Epilogue Quest Chain" is a one-time 6-week unlock rather than a
+// recurring weekly, but it's included anyway so people know it exists at all — once
+// finished, hide it the same way as anything else that's stopped being relevant.
+// Third value is a stable key, separate from the editable label — the one-time backfill
+// below matches on this, not on label text, so renaming "Duty Roulette" to something else
+// doesn't make it look "missing" and spawn a duplicate on the next load. Fourth is the MSQ
+// gate described above; the quest it was read from is named beside it.
+const DEFAULT_ROUTINES = [
+  ["Allied Society Quests","daily15","allied-society",""],
+  ["Duty Roulette","daily15","duty-roulette",""],
+  ["Morbid Motivation (Mysterious Maps - High Level Dungeons)","daily15","morbid-motivation",""],
+  ["Cut from a Different Cloth (Singing Clusters)","daily15","cut-different-cloth","3.0"],   // Anima line, Idyllshire
+  ["The Will to Resist (Resistance Weapon)","daily15","will-to-resist","5.0"],               // Hail to the Queen → Shadowbringers
+  ["Aether, Aether, Everywhere (Phantom Weapon)","daily15","aether-everywhere","7.0"],       // One Last Hurrah → Dawntrail
+  ["Tank You (Leveling or High-level roulette, as a tank)","daily15","tank-you",""],
+  ["Mini Cactpot","daily15","mini-cactpot",""],
+  ["The Hunt — A Realm Reborn (Daily Marks)","daily15","hunt-daily",""],
+  ["Clan Hunt — Heavensward (Daily Marks)","daily15","hunt-clan-daily","3.0"],
+  ["Veteran Clan Hunt — Stormblood (Daily Marks)","daily15","hunt-veteran-daily","4.0"],
+  ["Nutsy Clan Hunt — Shadowbringers (Daily Marks)","daily15","hunt-nutsy-daily","5.0"],
+  ["Guildship Hunt — Endwalker (Daily Marks)","daily15","hunt-guildship-daily","6.0"],
+  ["Dawn Hunt — Dawntrail (Daily Marks)","daily15","hunt-dawn-daily","7.0"],
+  ["Grand Company Turn-in","daily20","gc-turnin",""],
+  ["Treasure Hunt (map every 18h)","cooldown18h","treasure-hunt",""],
+  ["Adventurer Squadron Training","daily20","squadron-training",""],
+  ["Cosmic Exploration Daily Successes","daily09","cosmic-exploration","6.0"],               // A Cosmic Homecoming → Endwalker
+  ["Retainer Ventures","cooldown18h","retainer-ventures",""],
+  ["Dancing Mad (Ultimate)","weeklyTue","dancing-mad","7.0"],                                // level 100, so Dawntrail
+  ["AAC Heavyweight M4","weeklyTue","aac-m4","7.0"],                                         // Dawntrail raid tier
+  ["Windurst: The Third Walk","weeklyTue","windurst","7.0"],                                 // An Otherworldly Encounter → Dawntrail
+  ["YoRHa Epilogue Quest Chain (one-time unlock)","weeklyTue","yorha-epilogue","5.0"],       // YoRHa series → Shadowbringers
+  ["Cap Allagan Tomestone of Mnemonics","weeklyTue","tomestone-cap","7.0"],                  // newest expansion's MSQ → Dawntrail
+  ["AAC Heavyweight (Savage)","weeklyTue","aac-savage","7.0"],                               // Dawntrail raid tier
+  // The Challenge Log is 13 categories of weekly challenges, not one tick — 80 of them, and
+  // a category is dead weight until you've unlocked the feature it's about. Counts as of
+  // patch 7.51: Field Operations 18, Gold Saucer 17, Crafting & Gathering 10, Battles 8,
+  // PvP 6, Deep Dungeons 5, Treasure Hunt 3, Grand Company 3, and 2 each for FATEs,
+  // Levequests, Allied Society, Retainer Ventures and Island Sanctuary.
+  // Only three can be gated honestly. The rest unlock behind a level, a single sidequest or
+  // a purchase the ledger holds no data about — Treasure Hunt maps can simply be bought —
+  // and a gate you can't evidence is worse than none. The wiki lists this category as
+  // "Other"; it is Island Sanctuary and nothing else, so it says so.
+  ["Challenge Log · Battles","weeklyTue","challenge-battles",""],
+  ["Challenge Log · PvP","weeklyTue","challenge-pvp",""],
+  ["Challenge Log · FATEs","weeklyTue","challenge-fate",""],
+  ["Challenge Log · Levequests","weeklyTue","challenge-leves",""],
+  ["Challenge Log · Crafting & Gathering","weeklyTue","challenge-crafting",""],
+  ["Challenge Log · Treasure Hunt","weeklyTue","challenge-treasure",""],
+  ["Challenge Log · Allied Society","weeklyTue","challenge-society",""],
+  ["Challenge Log · Grand Company","weeklyTue","challenge-gc",""],
+  ["Challenge Log · Retainer Ventures","weeklyTue","challenge-ventures",""],
+  ["Challenge Log · Gold Saucer","weeklyTue","challenge-goldsaucer",""],
+  ["Challenge Log · Field Operations","weeklyTue","challenge-fieldops","4.0"],  // Eureka → Stormblood
+  ["Challenge Log · Deep Dungeons","weeklyTue","challenge-deep",""],
+  ["Challenge Log · Island Sanctuary","weeklyTue","challenge-island","6.0"],    // Seeking Sanctuary → Endwalker
+  ["Seeking Inspiration (Anima Weapon)","weeklyTue","seeking-inspiration","3.0"],            // Anima line, Idyllshire
+  ["Wondrous Tails","weeklyTue","wondrous-tails","3.0"],                                     // Keeping Up with the Aliapohs, Idyllshire
+  ["Jumbo Cactpot","weeklySat","jumbo-cactpot",""],
+  ["The Hunt — A Realm Reborn (B-Rank Elite Marks)","weeklyTue","hunt-brank",""],
+  ["Clan Hunt — Heavensward (B-Rank Elite Marks)","weeklyTue","hunt-clan-brank","3.0"],
+  ["Veteran Clan Hunt — Stormblood (B-Rank Elite Marks)","weeklyTue","hunt-veteran-brank","4.0"],
+  ["Nutsy Clan Hunt — Shadowbringers (B-Rank Elite Marks)","weeklyTue","hunt-nutsy-brank","5.0"],
+  ["Guildship Hunt — Endwalker (B-Rank Elite Marks)","weeklyTue","hunt-guildship-brank","6.0"],
+  ["Dawn Hunt — Dawntrail (B-Rank Elite Marks)","weeklyTue","hunt-dawn-brank","7.0"],
+  ["Masked Carnivale / Blue Mage Log","weeklyTue","masked-carnivale",""],
+  ["Fashion Report","weeklyTue","fashion-report",""],
+  ["Custom Deliveries","weeklyTue","custom-deliveries","3.0"],                               // earliest client is Zhloe, Idyllshire
+  ["Doman Enclave Reconstruction","weeklyTue","doman-enclave","4.2"],                        // Elation and Trepidation
+  ["Squadron Missions","cooldown18h","squadron-missions",""],        // 18h per dispatch; the weekly cap is per unique mission
+  ["Faux Hollows","weeklyTue","faux-hollows","5.0"],                                         // Fantastic Mr. Faux → Shadowbringers
+  ["Island Sanctuary Weekly","weeklyTue","island-sanctuary","6.0"],                          // Seeking Sanctuary → Endwalker
+  ["Bozjan Frontier (Delubrum Reginae)","weeklyTue","bozjan-frontier","5.0"]                 // Hail to the Queen → Shadowbringers
+];
+function seedRoutines(){
+  return DEFAULT_ROUTINES.map(([label,schedId,seedKey,requires])=>(
+    { id:newId(), label, schedId, lastDone:null, requires:requires||'', hidden:false, seedKey }
+  ));
+}
+function seededRoutine(seedKey){
+  const row = DEFAULT_ROUTINES.find(([,,key])=>key===seedKey);
+  if(!row) return null;
+  const [label,schedId,,requires] = row;
+  return { id:newId(), label, schedId, lastDone:null, requires:requires||'', hidden:false, seedKey };
+}
+// Rows added to DEFAULT_ROUTINES *after* a character was seeded need their own pass.
+// backfillSeedRoutines can't do it: its guard is "is this seedKey present", which cannot
+// tell "never had it" from "deleted it on purpose", so re-running would resurrect rows
+// people deliberately threw away. That's exactly why it hides behind routinesSeeded.
+// A generation counter fixes it without giving up that protection — each step names the
+// keys it introduces, so nothing outside the new set is ever touched. To add rows later:
+// bump SEED_GENERATION and add a step listing them.
+const SEED_GENERATION = 3;
+const SEED_GENERATIONS = {
+  // Challenge Log split from one weekly tick into its 13 real categories.
+  2: {
+    add: ['challenge-battles','challenge-pvp','challenge-fate','challenge-leves',
+          'challenge-crafting','challenge-treasure','challenge-society','challenge-gc',
+          'challenge-ventures','challenge-goldsaucer','challenge-fieldops','challenge-deep',
+          'challenge-island'],
+    // The single row the 13 replace. Removed only if still word-for-word the default —
+    // rename it and you keep it, same rule as every other fix here. A pristine row carries
+    // no intent worth preserving, and leaving it would double-count the whole log.
+    retire: [{ seedKey:'challenge-log', label:'Challenge Log' }]
+  },
+  // "The Hunt" only names the ARR mark bills — HW, StB, ShB, EW and DT each run their own
+  // named board (Clan Hunt, Veteran Clan Hunt, Nutsy Clan Hunt, Guildship Hunt, Dawn Hunt)
+  // with its own daily and weekly B-rank bill. Nothing retires: hunt-daily/hunt-brank were
+  // never wrong, just ARR-only, and stay that way.
+  3: {
+    add: ['hunt-clan-daily','hunt-clan-brank','hunt-veteran-daily','hunt-veteran-brank',
+          'hunt-nutsy-daily','hunt-nutsy-brank','hunt-guildship-daily','hunt-guildship-brank',
+          'hunt-dawn-daily','hunt-dawn-brank']
+  }
+};
+function applySeedGenerations(c){
+  let gen = typeof c.seedGeneration === 'number' ? c.seedGeneration : 1;
+  while(gen < SEED_GENERATION){
+    const step = SEED_GENERATIONS[++gen];
+    if(!step) continue;
+    const have = new Set(c.routines.map(r=>r.seedKey).filter(Boolean));
+    (step.add || []).forEach(key=>{
+      if(have.has(key)) return;
+      const row = seededRoutine(key);
+      if(row) c.routines.push(row);
+    });
+    (step.retire || []).forEach(({seedKey,label})=>{
+      const i = c.routines.findIndex(r=>r.seedKey===seedKey);
+      if(i >= 0 && c.routines[i].label === label) c.routines.splice(i,1);
+    });
+  }
+  c.seedGeneration = SEED_GENERATION;
+}
+// One-time backfill for characters that existed before this seed list did (or before an
+// item was added to it) — adds only what's missing, matched by seedKey so a renamed label
+// doesn't duplicate, and never re-adds something whose seedKey is already present even if
+// the user deleted that routine on purpose. Runs once per character via routinesSeeded.
+function backfillSeedRoutines(c){
+  const have = new Set(c.routines.map(r=>r.seedKey).filter(Boolean));
+  DEFAULT_ROUTINES.forEach(([label,schedId,seedKey,requires])=>{
+    if(!have.has(seedKey)){
+      c.routines.push({ id:newId(), label, schedId, lastDone:null, requires:requires||'', hidden:false, seedKey });
+    }
+  });
+  c.routinesSeeded = true;
+}
+// Corrections to already-seeded routines whose original best-effort schedule turned out
+// wrong after the fact (Jumbo Cactpot was on the standard Tuesday reset; it's really its
+// own Saturday drawing. Treasure Hunt and Retainer Ventures were approximated to a fixed
+// daily reset; both are really an 18h cooldown from whenever you last dispatched them).
+// Each only applies if the routine is still sitting on the specific old (wrong) schedId —
+// a deliberate manual change away from that couldn't have happened before the fix existed,
+// so this can't clobber a real user choice. Add future corrections here rather than
+// one-off functions.
+//
+// Each fix is applied at most once per character, recorded by its own id.
+//
+// Two wrong designs came before this one. A single seedScheduleFixesApplied boolean
+// stranded anyone whose record was marked before a later entry was added: Retainer
+// Ventures sat on daily15 for a flagged character and no reload could correct it.
+// Re-running the list on every load fixes that but breaks something worse — the `from`
+// guard does NOT protect a deliberate choice here. A schedule is a closed set of eight
+// options, so a user can pick the very value a fix treats as wrong, and it would be
+// silently reverted on every load, for ever. That is the difference from SEED_LABEL_FIXES
+// below, where a user's rename can never equal the `from` string.
+//
+// So: per-fix ids. A new entry reaches existing characters once, and anything the user
+// does afterwards is never touched again. The id is recorded whether or not it matched,
+// because "considered" is the thing worth remembering. The old boolean is dropped, since
+// it cannot say which fixes it stood for.
+// Squadron Missions carries two clocks, and the seed picked the wrong one. A mission takes
+// 18 hours to complete once dispatched, and separately each unique Trainee or Routine
+// mission may be completed once a week, with one Priority mission a week. The weekly cap
+// limits WHICH mission you may run, not whether you can send the squadron out at all, so
+// the cadence of the row is the 18h dispatch — the same shape as Retainer Ventures and
+// Treasure Hunt. Both figures are from the wiki's Squadron page.
+const SEED_SCHEDULE_FIXES = [
+  { id:'jumbo-sat',    seedKey:'jumbo-cactpot',     from:'weeklyTue', to:'weeklySat' },
+  { id:'treasure-18h', seedKey:'treasure-hunt',     from:'daily15',   to:'cooldown18h' },
+  { id:'retainer-18h', seedKey:'retainer-ventures', from:'daily15',   to:'cooldown18h' },
+  { id:'squadron-18h', seedKey:'squadron-missions', from:'weeklyTue', to:'cooldown18h' }
+];
+function applySeedScheduleFixes(c){
+  if(!Array.isArray(c.seedScheduleFixesDone)) c.seedScheduleFixesDone = [];
+  SEED_SCHEDULE_FIXES.forEach(({id,seedKey,from,to})=>{
+    if(c.seedScheduleFixesDone.includes(id)) return;
+    const r = c.routines.find(r=>r.seedKey===seedKey);
+    if(r && r.schedId===from) r.schedId = to;
+    c.seedScheduleFixesDone.push(id);
+  });
+  delete c.seedScheduleFixesApplied;
+}
+// Same only-if-still-default safety as SEED_SCHEDULE_FIXES, but for wording corrections —
+// a user's own rename is never touched, because nothing matches `from` any more.
+// Unlike the schedule fixes this list runs on EVERY load, not once per character. A label
+// can be wrong twice: "Tank You" below has been corrected two ways, and a one-time flag
+// meant anyone who took the first correction could never receive the second. Re-running is
+// free and idempotent — the `from` guard is what protects a rename, not the flag ever was.
+// So a fix added here reaches existing characters. Chain both old spellings to the new one.
+const SEED_LABEL_FIXES = [
+  { seedKey:'morbid-motivation', from:'Morbid Motivation (Mysterious Maps)', to:'Morbid Motivation (Mysterious Maps - High Level Dungeons)' },
+  // "Tank You" had two wrong labels. There is no roulette called "Tank Roulette" — the two
+  // that qualify are Duty Roulette: Leveling and Duty Roulette: High-level Dungeons, run as
+  // a tank. And "any tank job" was wrong the other way: this is a per-job chain (Tank You,
+  // Paladin I; Tank You, Warrior I; …) and credit goes to the job you actually played, so a
+  // Paladin run does nothing for the Warrior chain.
+  // The achievement also counts far more than roulettes — dungeons lv 61+, extreme and
+  // unreal trials, and normal, savage and alliance raids lv 70+, none of them daily-capped.
+  // Only the roulettes are capped, and only with the daily award bonus, once each per day.
+  // This row is a DAILY, so it names the daily-resetting half. The rest is grind at your own
+  // pace, which a reset tracker has nothing useful to say about.
+  // (The wiki contradicts itself on extreme trials: the achievement text says lv 61+, its
+  // own Notes list says lv 70+. Unresolved, so deliberately encoded nowhere.)
+  { seedKey:'tank-you', from:'Tank You (Tank Roulette)',                to:'Tank You (Leveling or High-level roulette, as a tank)' },
+  { seedKey:'tank-you', from:'Tank You (Tank Roulette — any tank job)', to:'Tank You (Leveling or High-level roulette, as a tank)' },
+  // Naming the expansion once the Hunt split into per-expansion rows — otherwise the ARR
+  // pair looked identical to how they read before the split, the one thing that was actually
+  // supposed to change everywhere.
+  { seedKey:'hunt-daily', from:'The Hunt (Daily Marks)',        to:'The Hunt — A Realm Reborn (Daily Marks)' },
+  { seedKey:'hunt-brank', from:'Hunt — B-Rank Elite Marks',     to:'The Hunt — A Realm Reborn (B-Rank Elite Marks)' },
+  // The five HW-DT rows were already seeded (generation 3, above) before the expansion name
+  // was added to their labels, so anyone who loaded in that window is stuck on the old
+  // wording same as the ARR pair was — chain them to the corrected text the same way.
+  { seedKey:'hunt-clan-daily',      from:'Clan Hunt (Daily Marks)',                 to:'Clan Hunt — Heavensward (Daily Marks)' },
+  { seedKey:'hunt-clan-brank',      from:'Clan Hunt — B-Rank Elite Marks',          to:'Clan Hunt — Heavensward (B-Rank Elite Marks)' },
+  { seedKey:'hunt-veteran-daily',   from:'Veteran Clan Hunt (Daily Marks)',         to:'Veteran Clan Hunt — Stormblood (Daily Marks)' },
+  { seedKey:'hunt-veteran-brank',   from:'Veteran Clan Hunt — B-Rank Elite Marks',  to:'Veteran Clan Hunt — Stormblood (B-Rank Elite Marks)' },
+  { seedKey:'hunt-nutsy-daily',     from:'Nutsy Clan Hunt (Daily Marks)',           to:'Nutsy Clan Hunt — Shadowbringers (Daily Marks)' },
+  { seedKey:'hunt-nutsy-brank',     from:'Nutsy Clan Hunt — B-Rank Elite Marks',    to:'Nutsy Clan Hunt — Shadowbringers (B-Rank Elite Marks)' },
+  { seedKey:'hunt-guildship-daily', from:'Guildship Hunt (Daily Marks)',            to:'Guildship Hunt — Endwalker (Daily Marks)' },
+  { seedKey:'hunt-guildship-brank', from:'Guildship Hunt — B-Rank Elite Marks',     to:'Guildship Hunt — Endwalker (B-Rank Elite Marks)' },
+  { seedKey:'hunt-dawn-daily',      from:'Dawn Hunt (Daily Marks)',                 to:'Dawn Hunt — Dawntrail (Daily Marks)' },
+  { seedKey:'hunt-dawn-brank',      from:'Dawn Hunt — B-Rank Elite Marks',          to:'Dawn Hunt — Dawntrail (B-Rank Elite Marks)' }
+];
+function applySeedLabelFixes(c){
+  SEED_LABEL_FIXES.forEach(({seedKey,from,to})=>{
+    const r = c.routines.find(r=>r.seedKey===seedKey);
+    if(r && r.label===from) r.label = to;
+  });
+}
+// Seeded routines predating the MSQ gates above carry requires:'' — the only value they
+// could ever have had, since nothing pre-filled the field. So an empty one is untouched
+// default, never a considered choice, and filling it in can't clobber anything: same
+// only-if-still-default reasoning as the two fixes above. A gate you then clear yourself
+// stays cleared, because each gate is offered to a character once, recorded by seedKey.
+// This used to be one seedRequiresApplied boolean — the same design SEED_SCHEDULE_FIXES
+// dropped, and for the same reason: a gate added later never reached a flagged character.
+// A flagged record has already been offered every gate except the ones named here, so it
+// starts with those marked done and gets only the newcomers.
+const SEED_REQUIRES_ADDED_LATER = ['tomestone-cap'];
+function applySeedRequires(c){
+  if(!Array.isArray(c.seedRequiresDone)){
+    c.seedRequiresDone = c.seedRequiresApplied
+      ? DEFAULT_ROUTINES.filter(([,,k,req])=>req && !SEED_REQUIRES_ADDED_LATER.includes(k)).map(([,,k])=>k)
+      : [];
+  }
+  DEFAULT_ROUTINES.forEach(([,,seedKey,requires])=>{
+    if(!requires || c.seedRequiresDone.includes(seedKey)) return;
+    const r = c.routines.find(r=>r.seedKey===seedKey);
+    if(r && !r.requires) r.requires = requires;
+    c.seedRequiresDone.push(seedKey);
+  });
+  delete c.seedRequiresApplied;
+}
+// Quest totals are copied into each character when it is created, so raising a default
+// does nothing for characters that already exist — they keep whatever was current on the
+// day they were made, and every percentage stays against the old denominator. These two
+// lists carry the stored value forward, with the same only-if-still-default safety as the
+// seed fixes above: a total still sitting on the exact old figure was never edited, and a
+// total you typed yourself matches no `from` and is left alone. Add a line per figure when
+// a patch moves one, rather than editing the defaults on their own.
+const QUEST_TOTAL_FIXES = [
+  { key:'overall', from:6472, to:6485 },   // 7.56: +4 MSQ, +10 Class & Job, -1 Sidequests
+  { key:'msq',     from:991,  to:995  },
+  { key:'side',    from:1987, to:1986 },   // never right, not a patch change
+  { key:'class',   from:848,  to:858  }
+];
+const MSQ_TOTAL_FIXES = [
+  { key:'dt', from:139, to:143 }           // 7.56's four Dawntrail quests
+];
+function applyQuestTotalFixes(c){
+  QUEST_TOTAL_FIXES.forEach(({key,from,to})=>{
+    if(c.questTotals[key] === from) c.questTotals[key] = to;
+  });
+  MSQ_TOTAL_FIXES.forEach(({key,from,to})=>{
+    if(c.msqBreakdownTotals[key] === from) c.msqBreakdownTotals[key] = to;
+  });
+  c.questTotalFixesApplied = true;
+}
+
+function schedById(id){ return RESET_SCHEDULES.find(s=>s.id===id) || RESET_SCHEDULES[0]; }
+
+// Challenge Log sits between Weekly and Monthly rather than inside Weekly. It resets on the
+// same Tuesday clock, but thirteen category rows would swamp a list where every other entry
+// is a single activity — and unlike the rest, the whole feature is one you either work or
+// ignore, so it gets one switch instead of thirteen hide buttons.
+const CHALLENGE_SECTION = 'Challenge Log';
+const COOLDOWN_SECTION = 'Cooldowns';
+const ROUTINE_SECTIONS = ['Daily','Weekly',CHALLENGE_SECTION,'Monthly',COOLDOWN_SECTION];
+function isChallengeRow(item){ return (item.seedKey || '').startsWith('challenge-'); }
+// No monthly-reset content has ever existed in FFXIV — Monthly stays folded into Other
+// (so nothing a user adds goes missing) until patch 8.0 actually ships. Flip this to true
+// once it does; the Monthly heading then appears on its own automatically.
+const PATCH_8_0_RELEASED = false;
+function routineSection(item){
+  if(isChallengeRow(item)) return CHALLENGE_SECTION;
+  const kind = schedById(item.schedId).kind;
+  if(kind === 'monthly') return PATCH_8_0_RELEASED ? 'Monthly' : COOLDOWN_SECTION;
+  if(kind === 'weekly') return 'Weekly';
+  if(kind === 'daily' || kind === 'interval') return 'Daily';
+  return COOLDOWN_SECTION; // cooldown (Treasure Hunt) and anything else that isn't clock-based
+}
+
+// Finer grouping within Daily specifically — Weekly/Monthly/Other don't need this level of
+// detail yet. Keyed by seedKey (stable, unlike the editable label) rather than schedId
+// (shared by unrelated items). Anything with no match — including every manually-added
+// daily, which has no seedKey at all — falls into "Other".
+// Morbid Motivation (Mysterious Maps) was tied to the Relic Weapon line once, but that
+// association was phased out in patch 3.0 — it's a plain repeatable dungeon/map activity
+// now, same category as Tank You or Mini Cactpot, no level check needed.
+// Retainer Ventures isn't in this list at all — it's an 18h personal cooldown (same
+// mechanism as Treasure Hunt), so it lives in the top-level Other section, not Daily.
+/* Grouped by the activity rather than the clock, and shared by Daily and
+   Weekly. The old list covered Daily only, and its "Continuous" group put the
+   six hunt bills, the roulettes and Mini Cactpot under one heading.
+
+   The Hunt is why this matters. Twelve of the fifty-five seeded routines are
+   hunt bills: six daily and six weekly, one per expansion. */
+const ACTIVITY_GROUPS = [
+  ['The Hunt', ['hunt-daily','hunt-clan-daily','hunt-veteran-daily','hunt-nutsy-daily',
+                'hunt-guildship-daily','hunt-dawn-daily',
+                'hunt-brank','hunt-clan-brank','hunt-veteran-brank','hunt-nutsy-brank',
+                'hunt-guildship-brank','hunt-dawn-brank']],
+  ['Roulettes and duties', ['duty-roulette','tank-you','morbid-motivation']],
+  ['Raids and tomestones', ['dancing-mad','aac-m4','aac-savage','tomestone-cap']],
+  ['Gold Saucer', ['mini-cactpot','jumbo-cactpot','fashion-report']],
+  ['Idyllshire', ['wondrous-tails','faux-hollows']],
+  ['Relic weapons', ['cut-different-cloth','will-to-resist','aether-everywhere','seeking-inspiration']],
+  ['Grand Company', ['squadron-training','gc-turnin','squadron-missions']],
+  ['Allied Societies', ['allied-society']],
+  ['Crafting and gathering', ['custom-deliveries']],
+  ['Field operations', ['bozjan-frontier']],
+  ['Retainers', ['retainer-ventures']],
+  ['Treasure Hunt', ['treasure-hunt']]
+];
+function activityGroup(item){
+  for(const [name, keys] of ACTIVITY_GROUPS){
+    if(item.seedKey && keys.includes(item.seedKey)) return name;
+  }
+  return 'Other';
+}
+const HUNT_DAILY_KEYS  = ['hunt-daily','hunt-clan-daily','hunt-veteran-daily',
+                          'hunt-nutsy-daily','hunt-guildship-daily','hunt-dawn-daily'];
+const HUNT_WEEKLY_KEYS = ['hunt-brank','hunt-clan-brank','hunt-veteran-brank',
+                          'hunt-nutsy-brank','hunt-guildship-brank','hunt-dawn-brank'];
+const HUNT_SHORT = {
+  'hunt-daily':'ARR','hunt-clan-daily':'HW','hunt-veteran-daily':'SB',
+  'hunt-nutsy-daily':'ShB','hunt-guildship-daily':'EW','hunt-dawn-daily':'DT',
+  'hunt-brank':'ARR','hunt-clan-brank':'HW','hunt-veteran-brank':'SB',
+  'hunt-nutsy-brank':'ShB','hunt-guildship-brank':'EW','hunt-dawn-brank':'DT'
+};
+function huntSetOf(item){
+  if(HUNT_DAILY_KEYS.includes(item.seedKey)) return 'daily';
+  if(HUNT_WEEKLY_KEYS.includes(item.seedKey)) return 'weekly';
+  return null;
+}
+
+/* One row carrying six expansion ticks instead of six rows. The six bills are
+   the same errand six times, and across Daily and Weekly they were the largest
+   block in the list.
+
+   A tick the character cannot reach is greyed rather than hidden, so the row
+   still reads as six expansions. The leading box stands for no single routine,
+   so it ticks every expansion that is reachable. */
+function huntLive(c, which, items){
+  const keys = which === 'daily' ? HUNT_DAILY_KEYS : HUNT_WEEKLY_KEYS;
+  const present = keys.map(k => items.find(r => r.seedKey === k)).filter(Boolean);
+  if(!present.length) return null;
+  const now = new Date();
+  let done = 0, open = 0;
+  const ticks = present.map(r=>{
+    const lock = routineLock(r, c);
+    const isDone = isRoutineDone(r, now);
+    if(!lock){ open++; if(isDone) done++; }
+    return {id: r.id, short: HUNT_SHORT[r.seedKey], done: isDone, lock: !!lock, title: lock ? 'needs ' + lock.need : r.label};
+  });
+  return {ticks, done, open,
+    due: fmtDue(nextResetInstant(schedById(present[0].schedId), now, present[0].lastDone) - now.getTime()),
+    label: which === 'daily' ? 'The Hunt — daily mark bills' : 'The Hunt — B-rank elite marks'};
+}
+const HuntCompact = {
+  props: {cid: String, which: String, items: Array, beat: Number},
+  setup(props){
+    const h = Vue.computed(() => { props.beat; return huntLive(getChar(props.cid), props.which, props.items); });
+    return {h, toggleRoutine, toggleHuntSet};
+  },
+  template: `
+    <div v-if="h" class="routine-item hunt-compact">
+      <input type="checkbox" :checked="!!h.open && h.done === h.open" title="Tick every expansion you can reach" @change="toggleHuntSet(cid, which, $event.target.checked)">
+      <div class="hunt-cell">
+        <span class="routine-label">{{ h.label }}</span>
+        <span class="hunt-ticks"><label v-for="t in h.ticks" :key="t.id" class="hunt-tick" :class="{done: t.done, locked: t.lock}" :title="t.title"><input type="checkbox" :id="cid + '-rt-chk-' + t.id" :checked="t.done && !t.lock" :disabled="t.lock" @change="toggleRoutine(cid, t.id)">{{ t.short }}</label></span>
+        <span class="hunt-tally">{{ h.done }} / {{ h.open }}</span>
+      </div>
+      <span class="routine-due">{{ h.due }}</span>
+    </div>`
+};
+/* One setting for the whole ledger, not per character and not per frame. It
+   describes how the reader likes to read the list, so it changes Daily and
+   Weekly together. */
+function toggleHuntRows(){
+  collectAllInputs();
+  DATA.ui.huntRows = DATA.ui.huntRows === 'rows' ? 'compact' : 'rows';
+  DATA.chars.forEach(c => renderRoutines(c.id));
+  DATA.chars.forEach(c => applyFrames(c.id, 'routines'));
+  renderFrameRow();
+  scheduleSave();
+}
+function toggleHuntSet(cid, which, on){
+  collectAllInputs();
+  const c = getChar(cid);
+  const keys = which === 'daily' ? HUNT_DAILY_KEYS : HUNT_WEEKLY_KEYS;
+  keys.forEach(k=>{
+    const r = c.routines.find(x => x.seedKey === k);
+    if(!r || routineLock(r, c)) return;
+    r.lastDone = on ? Date.now() : null;
+  });
+  renderRoutines(cid);
+  applyFrames(cid, 'routines');
+  renderLastCompleted(cid);
+  updateResetBar();
+  scheduleSave();
+}
+/* Daily and Weekly are split by activity. A Hunt group is one compact row unless the
+   reader asked for a row per expansion; it carries the switch either way. */
+function routineGroups(items){
+  const rowsOn = DATA.ui.huntRows === 'rows';
+  return ACTIVITY_GROUPS.map(([name])=>name).concat(['Other']).map(name=>{
+    const groupItems = items.filter(item => activityGroup(item) === name);
+    if(!groupItems.length) return null;
+    const set = name === 'The Hunt' ? huntSetOf(groupItems[0]) : null;
+    const compact = set && !rowsOn ? set : null;
+    return {name, items: groupItems, set, compact, rowsOn, count: compact ? 1 : groupItems.length};
+  }).filter(Boolean);
+}
+
+function lastResetInstant(sched, now){
+  const t = now.getTime();
+  const Y = now.getUTCFullYear(), M = now.getUTCMonth(), D = now.getUTCDate();
+  if(sched.kind === 'daily'){
+    let d = Date.UTC(Y, M, D, sched.hour, 0, 0);
+    if(d > t) d -= DAY_MS;
+    return d;
+  }
+  if(sched.kind === 'interval'){
+    const dayStart = Date.UTC(Y, M, D, 0, 0, 0);
+    const period = sched.hours * 3600000;
+    return dayStart + Math.floor((t - dayStart) / period) * period;
+  }
+  if(sched.kind === 'weekly'){
+    const d = new Date(Date.UTC(Y, M, D, sched.hour, 0, 0));
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() - sched.weekday + 7) % 7));
+    if(d.getTime() > t) d.setUTCDate(d.getUTCDate() - 7);
+    return d.getTime();
+  }
+  if(sched.kind === 'monthly'){
+    const d = new Date(Date.UTC(Y, M, sched.day, sched.hour, 0, 0));
+    if(d.getTime() > t) d.setUTCMonth(d.getUTCMonth() - 1);
+    return d.getTime();
+  }
+  return 0;
+}
+// Cooldown schedules ignore the fixed-UTC-grid model entirely — "next available" is purely
+// lastDone + duration, so this (and isRoutineDone below) need the routine's own lastDone,
+// not just the schedule definition.
+function nextResetInstant(sched, now, lastDone){
+  if(sched.kind === 'cooldown'){
+    if(!lastDone) return now.getTime();
+    return lastDone + sched.hours * 3600000;
+  }
+  const last = lastResetInstant(sched, now);
+  if(sched.kind === 'daily')    return last + DAY_MS;
+  if(sched.kind === 'interval') return last + sched.hours * 3600000;
+  if(sched.kind === 'weekly')   return last + 7 * DAY_MS;
+  if(sched.kind === 'monthly'){ const d = new Date(last); d.setUTCMonth(d.getUTCMonth()+1); return d.getTime(); }
+  return last;
+}
+function isRoutineDone(item, now){
+  if(!item.lastDone) return false;
+  const sched = schedById(item.schedId);
+  if(sched.kind === 'cooldown') return (now.getTime() - item.lastDone) < sched.hours * 3600000;
+  return item.lastDone >= lastResetInstant(sched, now);
+}
+function fmtDue(ms){
+  if(ms <= 0) return 'now';
+  const mins = Math.floor(ms / 60000);
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if(h >= 24) return Math.floor(h/24) + 'd ' + (h % 24) + 'h';
+  if(h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+
+/* ---------- reset sound cues ---------- */
+// Tiny WebAudio beeps — no audio files to host, matches the site's local-only footprint.
+let audioCtx = null;
+function beep(notes){
+  if(!DATA.ui.soundEnabled) return;
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = audioCtx.currentTime;
+    notes.forEach(({freq,start,dur})=>{
+      const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0+start);
+      gain.gain.exponentialRampToValueAtTime(0.16, t0+start+0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0+start+dur);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t0+start); osc.stop(t0+start+dur+0.02);
+    });
+  }catch(e){ /* autoplay-blocked or unsupported — silent no-op, never breaks the page */ }
+}
+const RESET_SOUND_PLAYERS = {
+  bell:  () => beep([{freq:880,start:0,dur:0.22},{freq:660,start:0.16,dur:0.3}]),   // daily / interval
+  gong:  () => beep([{freq:196,start:0,dur:0.7}]),                                  // weekly — lower, longer
+  chirp: () => beep([{freq:520,start:0,dur:0.09},{freq:920,start:0.07,dur:0.12}])   // 18h cooldown
+};
+const RESET_SOUND_BY_KIND = { daily:'bell', interval:'bell', weekly:'gong', monthly:'gong', cooldown:'chirp' };
+function playResetSound(kind){ (RESET_SOUND_PLAYERS[kind] || RESET_SOUND_PLAYERS.bell)(); }
+// In-memory only, never persisted. Two different signals depending on kind, since a
+// cooldown's expiry instant is fixed once lastDone is set (it doesn't advance on its own),
+// while a clock-based schedule's "current period" boundary advances forward every day/week
+// on its own regardless of any item. So: clock-based kinds watch lastResetInstant() advance
+// to a new value (the period just rolled over — that IS the reset); cooldown kind watches
+// a plain "now >= expiry" boolean flip false->true. Either way, keying by schedId (not by
+// item) for clock-based, and by item.id for cooldown, means N items sharing one schedule
+// (e.g. 13 dailies all on daily15) collapse into one Map entry — and the Set below collapses
+// multiple *different* keys that map to the same sound into a single play per tick.
+const seenResetState = new Map();
+function checkResetSounds(){
+  const now = Date.now();
+  const nowDate = new Date(now);
+  const firedSounds = new Set();
+  DATA.chars.forEach(c=>{
+    c.routines.forEach(item=>{
+      const sched = schedById(item.schedId);
+      if(sched.kind === 'cooldown'){
+        if(!item.lastDone) return; // nothing to expire if never done
+        const key = `item:${item.id}`;
+        const isDue = now >= item.lastDone + sched.hours*3600000;
+        const wasDue = seenResetState.get(key);
+        if(wasDue === false && isDue) firedSounds.add('chirp');
+        seenResetState.set(key, isDue);
+        return;
+      }
+      const key = `sched:${item.schedId}`;
+      const periodStart = lastResetInstant(sched, nowDate);
+      const prevStart = seenResetState.get(key);
+      if(prevStart !== undefined && periodStart > prevStart){
+        firedSounds.add(RESET_SOUND_BY_KIND[sched.kind] || 'bell');
+      }
+      seenResetState.set(key, periodStart);
+    });
+  });
+  firedSounds.forEach(playResetSound);
+}
+function toggleResetSound(){
+  DATA.ui.soundEnabled = !DATA.ui.soundEnabled;
+  updateSoundToggleUI();
+  scheduleSave();
+}
+/* The mute button is drawn by the footer carousel (FootSlot), which reads this. */
+const soundOn = Vue.ref(true);
+function updateSoundToggleUI(){ soundOn.value = !!DATA.ui.soundEnabled; }
+
+/* ---------- patch gating ---------- */
+// FFXIV patch numbers compare correctly as plain decimals (x.0 ... x.5, x.55, x.56, x.58,
+// then (x+1).0 — there is no x.6). Verified against all 137 real patches 2.0–8.0: zero
+// out-of-order comparisons, including leading-zero cases (3.07 < 3.1) that break naive
+// integer-minor comparison. Lettered hotfix patches (6.11a) parse to their base number and
+// compare equal to it — deliberate, since letter suffixes never carry new content.
+function patchValue(s){
+  const n = parseFloat(String(s ?? '').trim());
+  return isNaN(n) ? null : n;
+}
+function isGated(item, patchStr){
+  const need = patchValue(item.requires);
+  if(need === null) return false;
+  const have = patchValue(patchStr);
+  if(have === null) return false;
+  return need > have;
+}
+// Two MSQ figures, and picking the wrong one is wrong in both directions.
+// `patch` is msqPatch.reached — the last patch whose OPENING quest is done. `patchCleared`
+// is msqPatch.cleared — the last patch whose CLOSING quest is done.
+// Most of these gates name an expansion finale (verified against Time Memoria's toc.json:
+// Shadowbringers, Endwalker and Dawntrail are each their patch's Final quest), so what they
+// really ask is "have you FINISHED that expansion" — a cleared question. Measuring those
+// against reached shows Cosmic Exploration to someone twenty quests into Endwalker; nudging
+// the number to 6.1 instead hides it from someone who finished Endwalker and then paused,
+// which is worse, because pausing after an expansion is an ordinary way to play. Neither
+// dodge is needed: the plugin sends both figures, so ask the right one.
+// Gates naming a quest INSIDE a patch stay on reached — Doman Enclave asks for Elation and
+// Trepidation, which is not 4.2's Final (Rise of a New Sun is), and the four Idyllshire rows
+// sit partway through 3.0. Those can't be expressed exactly either way, and reached errs
+// toward showing slightly early, which is the right way round.
+const SEED_CLEARED_GATES = new Set([
+  'will-to-resist','bozjan-frontier','faux-hollows','yorha-epilogue',  // Shadowbringers
+  'cosmic-exploration','island-sanctuary','challenge-island',          // Endwalker
+  'aether-everywhere','windurst','dancing-mad','aac-m4','aac-savage',  // Dawntrail
+  'tomestone-cap',
+  'challenge-fieldops'                                                 // Stormblood (Eureka)
+]);
+// A patch typed by hand is a reached figure — that's the natural reading of "where am I in
+// the story", and it's the only box the UI offers. So when cleared is absent, fall back to
+// reached: it can only show something slightly early, never hide something you can do.
+function gatePatchFor(item, c){
+  return (SEED_CLEARED_GATES.has(item.seedKey) && c.patchCleared) ? c.patchCleared : c.patch;
+}
+
+/* ---------- feature-unlock gating ---------- */
+// What the patch gates were always approximating. Time Memoria 3.2+ sends an `unlocks`
+// block built from QuestManager.IsQuestComplete, so "has completed Fantastic Mr. Faux" no
+// longer has to be expressed as "has reached patch 5.0" — which was wrong both ways, since
+// it showed Faux Hollows to someone twenty quests into Shadowbringers and could not express
+// "owns a Gold Saucer pass" at any patch number at all.
+// An exact answer beats an approximation, so when a key is present it decides outright and
+// the row's own `requires` is not consulted. Absent means the payload predates that key (or
+// there is no payload), and the patch gate takes over untouched.
+// Several rows map to more than one key, tested any-of: Field Operations covers Eureka,
+// Bozja and Occult Crescent, and having any one of them is enough to have challenges there.
+const SEED_UNLOCKS = {
+  'mini-cactpot':        ['miniCactpot'],
+  'jumbo-cactpot':       ['jumboCactpot'],
+  'fashion-report':      ['fashionReport'],
+  'treasure-hunt':       ['treasureHunt'],
+  'retainer-ventures':   ['retainerVenture'],
+  'gc-turnin':           ['grandCompany'],
+  'squadron-training':   ['squadron'],
+  'squadron-missions':   ['squadron'],
+  // Both A Realm Reborn rows read huntDaily. "Let the Hunt Begin" opens the daily
+  // bills and the weekly B-rank bill in one go — its own walkthrough lists the
+  // weekly Rank B hunt alongside the dailies. hunt-brank used to read eliteHunt,
+  // which is "Elite and Dangerous": level 60, patch 3.0, and its page says it
+  // unlocks *Heavensward* elite marks. So the ARR B-rank row was gated on an
+  // Ishgard quest, and anyone who had done the ARR hunt and stopped there was
+  // told a row they could actually do was locked. eliteHunt now serves the
+  // Heavensward row it always described.
+  'hunt-daily':          ['huntDaily'],
+  'hunt-brank':          ['huntDaily'],
+  'hunt-clan-daily':     ['clanHunt'],
+  'hunt-clan-brank':     ['eliteHunt'],
+  'hunt-veteran-daily':  ['veteranHunt'],
+  'hunt-veteran-brank':  ['veteranHuntElite'],
+  'hunt-nutsy-daily':    ['nutsyHunt'],
+  'hunt-nutsy-brank':    ['nutsyHuntElite'],
+  'hunt-guildship-daily':['guildshipHunt'],
+  'hunt-guildship-brank':['guildshipHuntElite'],
+  'hunt-dawn-daily':     ['dawnHunt'],
+  'hunt-dawn-brank':     ['dawnHuntElite'],
+  'allied-society':      ['alliedSociety'],
+  'challenge-society':   ['alliedSociety'],
+  'morbid-motivation':   ['zodiacMaps'],
+  'aac-m4':              ['arcadion'],
+  'aac-savage':          ['arcadion'],
+  'windurst':            ['windurst'],
+  'wondrous-tails':      ['wondrousTails'],
+  'faux-hollows':        ['fauxHollows'],
+  'custom-deliveries':   ['customDelivery'],
+  'doman-enclave':       ['domanEnclave'],
+  'cosmic-exploration':  ['cosmicExploration'],
+  'island-sanctuary':    ['islandSanctuary'],
+  'bozjan-frontier':     ['bozja'],
+  'will-to-resist':      ['bozja'],
+  'aether-everywhere':   ['occultCrescent'],
+  'cut-different-cloth': ['anima'],
+  'seeking-inspiration': ['anima'],
+  'masked-carnivale':    ['maskedCarnivale'],
+  'yorha-epilogue':      ['yorha'],
+  'challenge-battles':   ['challengeLog'],
+  'challenge-pvp':       ['pvp'],
+  'challenge-fate':      ['challengeLog'],
+  'challenge-leves':     ['leves'],
+  'challenge-treasure':  ['treasureHunt'],
+  'challenge-gc':        ['grandCompany'],
+  'challenge-ventures':  ['retainerVenture'],
+  'challenge-goldsaucer':['goldSaucer'],
+  'challenge-fieldops':  ['eureka','bozja','occultCrescent'],
+  'challenge-deep':      ['deepDungeon'],
+  'challenge-island':    ['islandSanctuary']
+};
+// The other half of an unlock answer: a key that is NECESSARY but not SUFFICIENT.
+// SEED_UNLOCKS is any-of, so everything in it can unlock a row — which is the wrong shape
+// for a prerequisite. Elite and Dangerous being done does not mean you ever walked into
+// Kugane, but it not being done means the Stormblood clan hunt is unreachable, because its
+// own quest cannot be started until Elite and Dangerous is complete. Putting eliteHunt in
+// the any-of list would have shown every later hunt to anyone who finished Heavensward's.
+// So: false locks the row outright. True says nothing at all and hands the row back to
+// whatever gate it already had.
+//
+// This is worth having on its own because it needs no new plugin key. huntDaily and
+// eliteHunt are both already sent, and between them they gate all ten expansion hunt rows
+// honestly today — the exact per-expansion keys only sharpen the answer later.
+// One key per row, since one is all any row needs; an all-of list can come the day it does.
+const SEED_PREREQS = {
+  // Heavensward's set: "Players must finish the original Let the Hunt Begin to unlock
+  // these quests."
+  'hunt-clan-daily':      'huntDaily',
+  'hunt-clan-brank':      'huntDaily',
+  // Stormblood onward: "Cannot be started until Elite and Dangerous is completed."
+  // Which subsumes huntDaily, since Elite and Dangerous sits at the end of the Heavensward
+  // chain that Let the Hunt Begin opens.
+  'hunt-veteran-daily':   'eliteHunt',
+  'hunt-veteran-brank':   'eliteHunt',
+  'hunt-nutsy-daily':     'eliteHunt',
+  'hunt-nutsy-brank':     'eliteHunt',
+  'hunt-guildship-daily': 'eliteHunt',
+  'hunt-guildship-brank': 'eliteHunt',
+  // Dawntrail also wants The Rite of Succession, which no key expresses. Its 7.0 patch
+  // gate is the nearest thing and stays in place underneath.
+  'hunt-dawn-daily':      'eliteHunt',
+  'hunt-dawn-brank':      'eliteHunt'
+};
+// true / false when the payload can answer, null when it cannot and the patch gate should.
+// Keys the payload does not carry are ignored rather than read as false — a build that
+// predates a key knows nothing about it, and treating silence as "locked" would hide
+// content from everyone on an older plugin.
+function unlockState(item, c){
+  if(!c.unlocks) return null;
+  // Every Challenge Log category needs the log itself as well as its own feature. That is
+  // an AND, and the rest of this function is any-of, so it is checked separately rather
+  // than bent into the same list. Without it a level 2 character with challengeLog false
+  // still saw Challenge Log · Allied Society, because that category has no feature key of
+  // its own and fell through to a patch gate.
+  if(isChallengeRow(item) && c.unlocks.challengeLog === false) return false;
+
+  // Checked before the any-of list, and only ever able to answer false. Absent is silence
+  // here too: a payload that does not carry the prerequisite key has not said the row is
+  // locked, so the row carries on to its own keys and then to its patch gate.
+  const prereq = SEED_PREREQS[item.seedKey];
+  if(prereq && c.unlocks[prereq] === false) return false;
+
+  const keys = SEED_UNLOCKS[item.seedKey];
+  if(!keys) return null;
+  const known = keys.filter(k => k in c.unlocks);
+  if(!known.length) return null;
+  return known.some(k => c.unlocks[k] === true);
+}
+// The other end of a row's life: a quest after which the routine is no longer required.
+// Doman Enclave Reconstruction ends with Lighting the Way, which also awards Bio-Doma V, so
+// one quest answers both. The donation basket stays open afterwards and some players keep
+// using it for gil, so the row is not hidden: it shows as complete and optional, and the
+// weekly meter leaves it out. The saved label is untouched. Absent means not finished.
+const SEED_FINISHED = {
+  'doman-enclave': { key:'domanEnclaveDone', label:'Doman Enclave is Complete - OPTIONAL' }
+};
+const FINISH_KEYS = new Set(Object.values(SEED_FINISHED).map(f => f.key));
+function routineFinished(item, c){
+  const f = SEED_FINISHED[item.seedKey];
+  return f && c.unlocks && c.unlocks[f.key] === true ? f : null;
+}
+// The plugin omits msqPatch only when no patch's opening quest is complete. Alongside an
+// `unlocks` block, which proves it ran, that absence is a fact rather than a gap: this
+// character has not finished 2.0's opening quest, so they are in their first hour of A
+// Realm Reborn — the earliest position the game still has. There is nothing "before" it to
+// be: 1.0 through 1.23b were Legacy and cannot be played.
+// Reading the absence as "unknown, gate nothing" is what showed Ultimate raids and the
+// current savage tier to a level 2 character with 28 minutes played.
+// A hand-entered character never has `unlocks`, so their blank patch still gates nothing.
+function noPatchReached(c){ return !!c.unlocks && !c.patch && !c.patchCleared; }
+
+/* ---------- level floors ---------- */
+// This revises the earlier "unlock only, never a level" call, deliberately.
+// That rule was made about JOBS — don't hide the Masked Carnivale from someone levelling a
+// Blue Mage — and it is still right there. It was never a reason to offer a level 2
+// Gladiator with 28 minutes played the high-level roulette, which is what it did.
+// So: floors only where a row is meaningless without one, and always the LOWEST level at
+// which any qualifying activity becomes possible, never the level the content is balanced
+// for. Tank You is 15 rather than 61 because the Leveling roulette also counts and that
+// needs only a dungeon. Erring low keeps the original spirit — what disappears is what
+// nobody at that level could attempt by any route, not what they are working toward.
+// Every number is from the wiki: Sastasha, the first dungeon, is 15; Highway Robbery, the
+// earliest allied society quest, is 41.
+// Capping tomestones is the exception, and it is not an erring-low floor at all: it is 100
+// because the wiki says outright that Mnemonics "cannot drop before the player's class is
+// at level 100". It read 60 here on the strength of the sources list naming "Level 60+
+// Alliance Raids" — but that names the DUTY, not the player, and the same section closes
+// with "all activities must be done on a level-capped class to receive level-capped tomes".
+// Dun Scaith is a source at level 100, synced down. So a level 60 character was being told
+// to cap a currency they cannot receive by any route.
+// The level is only half of it. The row also carries a "7.0 finished" MSQ gate: you cannot
+// cap the current tomestone before finishing the newest expansion's main scenario. An
+// earlier version left that out on the reading that the Dawntrail quest only gates SPENDING
+// them — wrong, and corrected by the player.
+const SEED_LEVELS = {
+  'duty-roulette':      15,
+  'tank-you':           15,
+  'allied-society':     41,
+  'challenge-society':  41,
+  'morbid-motivation':  50,  // the Zodiac quest itself is level 50
+  'tomestone-cap':     100
+};
+// Measured against the character's HIGHEST job, not whichever they are on. A level 90
+// Paladin who just picked up Botanist has not lost access to the roulette.
+// Off entirely without job data — same rule as the job gates, absent means no data.
+function highestJobLevel(c){
+  return Math.max(0, ...Object.values(c.combat || {}), ...Object.values(c.craft || {}),
+                     ...Object.values(c.gather || {}));
+}
+// These rows are dungeons, trials, raids and hunt marks, so only a battle job's level
+// counts. Counting every job let a level 100 Goldsmith with no battle job above 50 clear
+// the tomestone floor, and a crafter-only character clear the roulette one. Allied
+// societies stay on any job: several of them are crafter and gatherer societies.
+const SEED_COMBAT_LEVELS = new Set(['duty-roulette','tank-you','morbid-motivation','tomestone-cap']);
+function highestCombatLevel(c){
+  return Math.max(0, ...Object.values(c.combat || {}));
+}
+function levelLock(item, c){
+  const need = SEED_LEVELS[item.seedKey];
+  if(!need || !hasJobData(c)) return null;
+  if(SEED_COMBAT_LEVELS.has(item.seedKey))
+    return highestCombatLevel(c) >= need ? null : { reason:'level', need:`a level ${need} battle job` };
+  return highestJobLevel(c) >= need ? null : { reason:'level', need:`level ${need}` };
+}
+
+/* ---------- job-unlock gating ---------- */
+// The second reason a routine can't apply: the job it needs isn't unlocked at all. Blue
+// Mage is the obvious one — the Masked Carnivale row is meaningless to a character who
+// has never picked the job up.
+// This lives in code keyed by seedKey rather than in the row, because "any tank" or "any
+// crafter" isn't something you can write in a patch-number box. A routine you add by hand
+// has no seedKey and so is never job-gated — the hide button is still yours.
+// UNLOCK ONLY, never a level threshold. The Carnivale really wants Blue Mage 50 and Custom
+// Deliveries a level 60 crafter, but hiding a routine from someone levelling toward it is
+// worse than showing one they can't quite do yet. Level 0 is the only state that means
+// "this cannot apply as things stand".
+const TANK_JOBS = COMBAT_JOBS.filter(([,role])=>role==='Tank').map(([name])=>name);
+const LAND_AND_HAND = CRAFT_JOBS.concat(GATHER_JOBS);
+const SEED_JOB_GATES = {
+  'masked-carnivale':   { need:'Blue Mage',             jobs:['Blue Mage'] },
+  'tank-you':           { need:'a tank job',            jobs:TANK_JOBS },
+  'gc-turnin':          { need:'a crafter or gatherer', jobs:LAND_AND_HAND },
+  'custom-deliveries':  { need:'a crafter or gatherer', jobs:LAND_AND_HAND },
+  'cosmic-exploration': { need:'a crafter or gatherer', jobs:LAND_AND_HAND },
+  'challenge-crafting': { need:'a crafter or gatherer', jobs:LAND_AND_HAND }
+};
+// Absent means "no data", never "zero" — the same rule the plugin's export contract states.
+// A character whose job table is entirely untouched hasn't told us they lack Blue Mage,
+// only that they haven't typed anything, so job gating stays off until some level exists.
+function hasJobData(c){
+  return [c.combat, c.craft, c.gather].some(t => Object.values(t||{}).some(v => v > 0));
+}
+// One answer for both reasons a routine is locked, so callers don't have to ask twice and
+// can't get the two out of step. Patch is checked first: it's the one the player can see
+// and edit on the row itself.
+function routineLock(item, c){
+  // Asked first, and it settles the row on its own when the plugin can answer. A patch
+  // number is a proxy for this question, so once the real answer is in hand the proxy has
+  // nothing left to add — including when it disagrees, which it will: Kaye finished
+  // Stormblood years ago and still has never set foot in Eureka.
+  const unlocked = unlockState(item, c);
+  if(unlocked === false) return { reason:'unlock', need:'unlocking in game' };
+  if(unlocked === true) return levelLock(item, c) || jobLock(item, c);
+
+  if(item.requires && noPatchReached(c)) return { reason:'patch', need:'patch ' + item.requires };
+
+  if(isGated(item, gatePatchFor(item, c))){
+    const done = SEED_CLEARED_GATES.has(item.seedKey) && c.patchCleared;
+    return { reason:'patch', need:'patch ' + item.requires + (done ? ' finished' : '') };
+  }
+  return levelLock(item, c) || jobLock(item, c);
+}
+// Separate because it survives an unlock answer. Knowing you have unlocked the Masked
+// Carnivale says nothing about whether you have a Blue Mage to do it on, and the two rows
+// that need a crafter aren't quest-gated at all.
+function jobLock(item, c){
+  const gate = SEED_JOB_GATES[item.seedKey];
+  if(!gate || !hasJobData(c)) return null;
+  if(gate.jobs.some(job => jobLevelOf(c, job) >= 1)) return null;
+  return { reason:'job', need: gate.need };
+}
+function isLocked(item, c){ return routineLock(item, c) !== null; }
+
+/* ---------- job-level ranking ---------- */
+// Which job to level next: lowest among those started (level>=1, so unstarted jobs at 0
+// don't all tie for "lowest") and not yet capped.
+function lowestStarted(entries){
+  const eligible = entries.filter(e => e.level >= 1 && e.level < e.cap);
+  if(eligible.length < 2) return new Set();
+  const min = Math.min(...eligible.map(e=>e.level));
+  return new Set(eligible.filter(e=>e.level===min).map(e=>e.name));
+}
+/* A job's marker as {cls, text}, or null for none. The job tables draw it. */
+function markerOf(lvl, cap, isLowest){
+  if(lvl >= cap) return {cls: 'at-cap', text: 'at cap'};
+  return isLowest ? {cls: 'next-up', text: 'lowest'} : null;
+}
+// Ranks the bottom N distinct levels (not just the single lowest) — for beast tribe
+// crafting rotations that need to know their 2nd/3rd lowest, not just one job to level.
+// Ties share a rank: two jobs tied for lowest both come back as rank 1.
+function rankLowestTiers(entries, maxTiers){
+  const eligible = entries.filter(e => e.level >= 1 && e.level < e.cap);
+  if(eligible.length < 2) return new Map();
+  const tierLevels = [...new Set(eligible.map(e=>e.level))].sort((a,b)=>a-b).slice(0, maxTiers);
+  const rankOf = new Map();
+  eligible.forEach(e=>{
+    const tier = tierLevels.indexOf(e.level);
+    if(tier !== -1) rankOf.set(e.name, tier+1);
+  });
+  return rankOf;
+}
+function rankMarkerOf(lvl, cap, rank){
+  if(lvl >= cap) return {cls: 'at-cap', text: 'at cap'};
+  if(!rank) return null;
+  return {cls: 'next-up', text: rank===1 ? 'lowest' : '#'+rank};
+}
+
+/* ---------- generic helpers ---------- */
+function num(v){ const n = parseFloat(String(v).replace(/,/g,'')); return isNaN(n) ? 0 : n; }
+function fmt(n){ return Math.round(n).toLocaleString(); }
+function fmtLvl(n){
+  const r = Math.round(n*10)/10;
+  return Number.isInteger(r) ? r.toLocaleString() : r.toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1});
+}
+function pct(a,b){ return b ? ((a/b)*100) : 0; }
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+// Safe for interpolating into a single-quoted JS string literal inside an inline
+// onclick/onchange attribute (e.g. names like "Amalj'aa" would otherwise close the
+// string early and silently break the handler).
+function jsStr(s){
+  return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+function newId(){ return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+/* ---------- character data model ---------- */
+function newCharacter(name){
+  return {
+    id: newId(),
+    name: name || '',
+    duty:0, comm:0, roleTank:false, roleHealer:false, roleDps:false,
+    playtime:{days:0,hours:0}, patch:'', patchCleared:'', showGated:false, showHidden:false,
+    showZeroJobs:false, noPlugin:false,
+    quests: Object.fromEntries(QUEST_CATS.map(([k])=>[k,0])),
+    questTotals: Object.fromEntries(QUEST_CATS.map(([k,l,t])=>[k,t])),
+    msqBreakdown: Object.fromEntries(MSQ_EXPANSIONS.map(([k])=>[k,0])),
+    msqBreakdownTotals: Object.fromEntries(MSQ_EXPANSIONS.map(([k,l,t])=>[k,t])),
+    msqBreakdownOpen: false,
+    combat: Object.fromEntries(COMBAT_JOBS.map(([n])=>[n,0])),
+    craft: Object.fromEntries(CRAFT_JOBS.map(n=>[n,0])),
+    gather: Object.fromEntries(GATHER_JOBS.map(n=>[n,0])),
+    tradeCollected:0, tradeMade:0,
+    tradeCollectedAsOf:null, tradeCollectedExact:true,
+    tradeMadeAsOf:null, tradeMadeExact:true,
+    dutyAsOf:null, dutyExact:true,
+    custom: [], routines: seedRoutines(), routinesSeeded: true, seedGeneration: SEED_GENERATION, notes: '',
+    jobQuestsDone: {}, jobQuestsOpen: {},
+    server: {pdc:'', ldc:'', world:''},
+    societies: Object.fromEntries(ALLIED_SOCIETIES.map(([name,exp,startRank])=>[name,{rank:startRank,points:0}])),
+    intersocietalDone: {},
+    customClients: {},
+    societiesSynced:false,
+    // Keyed by the game's own BNpcName row id, so neither reordering the table nor
+    // correcting a mark's spelling can shift what is already ticked. Only slain marks
+    // are stored.
+    hunts: {}, huntsCollapsed: {},
+    // The last cosmicTools block imported, as {asOf, jobs}. Null until one arrives.
+    cosmicTools: null,
+    tmSyncedAt: null, tmSyncedVersion: null, playtimeAsOf: null
+  };
+}
+
+function normalizeCharacter(c){
+  if(!c.id) c.id = newId();
+  if(typeof c.name !== 'string') c.name = '';
+  ['duty','comm','tradeCollected','tradeMade'].forEach(k=>{ if(typeof c[k] !== 'number') c[k] = 0; });
+  // Counts read out of an achievement can be a floor rather than an exact figure, and
+  // are only as current as the last time the player opened that window, so each carries
+  // its own reading age and exactness. Typed-in values are exact by definition and have
+  // no age — hence the true/null defaults.
+  ['tradeCollectedAsOf','tradeMadeAsOf','dutyAsOf'].forEach(k=>{ if(typeof c[k] !== 'string') c[k] = null; });
+  ['tradeCollectedExact','tradeMadeExact','dutyExact'].forEach(k=>{ if(typeof c[k] !== 'boolean') c[k] = true; });
+  ['roleTank','roleHealer','roleDps','showGated','showHidden','showZeroJobs','noPlugin','societiesSynced'].forEach(k=>{ c[k] = !!c[k]; });
+  if(typeof c.patch !== 'string') c.patch = '';
+  if(typeof c.patchCleared !== 'string') c.patchCleared = '';
+  if(typeof c.notes !== 'string') c.notes = '';
+  if(!c.quests) c.quests = {};
+  if(!c.combat) c.combat = {};
+  if(!c.craft) c.craft = {};
+  if(!c.gather) c.gather = {};
+  if(!c.questTotals) c.questTotals = {};
+  QUEST_CATS.forEach(([key,label,total])=>{ if(c.questTotals[key] === undefined) c.questTotals[key] = total; });
+  if(!c.msqBreakdown) c.msqBreakdown = {};
+  if(!c.msqBreakdownTotals) c.msqBreakdownTotals = {};
+  MSQ_EXPANSIONS.forEach(([key,label,total])=>{
+    if(c.msqBreakdown[key] === undefined) c.msqBreakdown[key] = 0;
+    if(c.msqBreakdownTotals[key] === undefined) c.msqBreakdownTotals[key] = total;
+  });
+  if(!c.questTotalFixesApplied) applyQuestTotalFixes(c);
+  c.msqBreakdownOpen = !!c.msqBreakdownOpen;
+  if(typeof c.playtime === 'string'){
+    const d = c.playtime.match(/(\d+)\s*d/i), h = c.playtime.match(/(\d+)\s*h/i);
+    c.playtime = { days: d?parseInt(d[1]):0, hours: h?parseInt(h[1]):0 };
+  }
+  if(!c.playtime) c.playtime = {days:0,hours:0};
+  if(!c.jobQuestsDone || typeof c.jobQuestsDone !== 'object') c.jobQuestsDone = {};
+  migrateJobQuestTitles(c);
+  if(!c.jobQuestsOpen || typeof c.jobQuestsOpen !== 'object') c.jobQuestsOpen = {};
+  if(!c.itemJobsOff || typeof c.itemJobsOff !== 'object') c.itemJobsOff = {};
+  c.itemsAhead = !!c.itemsAhead;
+  c.itemsHq = c.itemsHq === undefined ? true : !!c.itemsHq;
+  if(!c.server || typeof c.server !== 'object') c.server = {pdc:'', ldc:'', world:''};
+  if(typeof c.server.pdc !== 'string') c.server.pdc = '';
+  if(typeof c.server.ldc !== 'string') c.server.ldc = '';
+  if(typeof c.server.world !== 'string') c.server.world = '';
+  // A saved LDC/world that no longer exists under its PDC (stale data, or hand-edited
+  // import) must not leave a selection the UI can't actually represent.
+  if(c.server.pdc && !SERVER_DATA[c.server.pdc]) c.server = {pdc:'', ldc:'', world:''};
+  else if(c.server.ldc && !(SERVER_DATA[c.server.pdc]||{})[c.server.ldc]){ c.server.ldc=''; c.server.world=''; }
+  else if(c.server.world && !((SERVER_DATA[c.server.pdc]||{})[c.server.ldc]||[]).includes(c.server.world)) c.server.world='';
+  if(!Array.isArray(c.custom)) c.custom = [];
+  // Left absent rather than defaulted to {} when never imported, so "no plugin data" and
+  // "plugin says nothing is unlocked" stay distinguishable in storage.
+  if(c.unlocks && typeof c.unlocks !== 'object') delete c.unlocks;
+  if(!Array.isArray(c.routines)) c.routines = [];
+  c.routines.forEach(r=>{
+    if(!r.schedId || !RESET_SCHEDULES.some(s=>s.id===r.schedId)) r.schedId = 'daily15';
+    r.lastDone = typeof r.lastDone === 'number' ? r.lastDone : null;
+    if(typeof r.requires !== 'string') r.requires = '';
+    r.hidden = !!r.hidden;
+    if(typeof r.seedKey !== 'string') r.seedKey = null;
+  });
+  if(!c.routinesSeeded) backfillSeedRoutines(c);
+  applySeedGenerations(c);
+  applySeedScheduleFixes(c);
+  applySeedLabelFixes(c);
+  applySeedRequires(c);
+  if(!c.societies || typeof c.societies !== 'object') c.societies = {};
+  ALLIED_SOCIETIES.forEach(([name,exp,startRank])=>{
+    const s = c.societies[name];
+    if(!s || typeof s !== 'object') c.societies[name] = {rank:startRank, points:0};
+    else{
+      if(typeof s.rank !== 'number' || !validRanksFor(name).includes(s.rank)) s.rank = startRank;
+      if(typeof s.points !== 'number' || s.points < 0) s.points = 0;
+    }
+  });
+  if(!c.intersocietalDone || typeof c.intersocietalDone !== 'object') c.intersocietalDone = {};
+  if(!c.customClients || typeof c.customClients !== 'object') c.customClients = {};
+  // A key matching no mark is left in place rather than pruned — see migrateHuntKeys.
+  if(!c.hunts || typeof c.hunts !== 'object') c.hunts = {};
+  migrateHuntKeys(c);
+  if(!c.huntsCollapsed || typeof c.huntsCollapsed !== 'object') c.huntsCollapsed = {};
+  if(!c.cosmicTools || typeof c.cosmicTools !== 'object'
+     || !c.cosmicTools.jobs || typeof c.cosmicTools.jobs !== 'object') c.cosmicTools = null;
+  if(typeof c.tmSyncedAt !== 'string') c.tmSyncedAt = null;
+  if(typeof c.tmSyncedVersion !== 'string') c.tmSyncedVersion = null;
+  if(typeof c.playtimeAsOf !== 'string') c.playtimeAsOf = null;
+  return c;
+}
+
+/* ---------- top-level data ---------- */
+let DATA = null;
+
+async function loadData(){
+  let raw = null;
+  try{ raw = JSON.parse(localStorage.getItem('ledger-data') || 'null'); }catch(e){ raw = null; }
+  if(!raw || !Array.isArray(raw.chars) || raw.chars.length === 0){
+    const first = newCharacter('');
+    DATA = { chars:[first], activeId:first.id, ui:{collapsed:{}} };
+  }else{
+    DATA = raw;
+  }
+  normalizeData();
+}
+function normalizeData(){
+  DATA.chars = DATA.chars.slice(0,3).map(normalizeCharacter);
+  if(!DATA.chars.find(c=>c.id===DATA.activeId)) DATA.activeId = DATA.chars[0].id;
+  if(!DATA.ui || typeof DATA.ui !== 'object') DATA.ui = {};
+  if(!DATA.ui.collapsed || typeof DATA.ui.collapsed !== 'object') DATA.ui.collapsed = {};
+  if(typeof DATA.ui.soundEnabled !== 'boolean') DATA.ui.soundEnabled = true;
+  // Earlier builds named these after the plugin's own UIs before they were
+  // given aesthetic names, so a stored value may still use the old spelling.
+  if(DATA.ui.theme === 'ledger') DATA.ui.theme = 'poetic';
+  if(DATA.ui.theme === 'classic') DATA.ui.theme = 'midnight';
+  if(!THEMES.includes(DATA.ui.theme)) DATA.ui.theme = 'poetic';
+}
+function getChar(cid){ return DATA.chars.find(c=>c.id===cid); }
+
+async function save(){
+  collectAllInputs();
+  try{
+    localStorage.setItem('ledger-data', JSON.stringify(DATA));
+    document.getElementById('save-status').textContent = 'Saved locally';
+  }catch(e){
+    document.getElementById('save-status').textContent = 'Save failed';
+  }
+}
+let saveTimer = null;
+function scheduleSave(){
+  document.getElementById('save-status').textContent = 'Saving…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 500);
+}
+
+/* Reads every input for every character currently in the DOM (all pages exist at once,
+   only display:none toggles which is visible) back into DATA. Never skips a character
+   just because its page isn't the active one. */
+function collectAllInputs(){
+  DATA.chars.forEach(c => collectCharInputs(c.id));
+}
+function collectCharInputs(cid){
+  const c = getChar(cid); if(!c) return;
+  const g = id => document.getElementById(id);
+  if(g(`${cid}-name`)) c.name = g(`${cid}-name`).value;
+  if(g(`${cid}-duty`)) setReadCount(c, 'duty', num(g(`${cid}-duty`).value));
+  if(g(`${cid}-comm`)) c.comm = num(g(`${cid}-comm`).value);
+  if(g(`${cid}-role-tank`)) c.roleTank = g(`${cid}-role-tank`).checked;
+  if(g(`${cid}-role-healer`)) c.roleHealer = g(`${cid}-role-healer`).checked;
+  if(g(`${cid}-role-dps`)) c.roleDps = g(`${cid}-role-dps`).checked;
+  if(g(`${cid}-playtime-days`)) c.playtime.days = num(g(`${cid}-playtime-days`).value);
+  if(g(`${cid}-playtime-hours`)) c.playtime.hours = num(g(`${cid}-playtime-hours`).value);
+  // Only a real change clears the reading stamps, since this runs on every keystroke
+  // anywhere on the page.
+  if(g(`${cid}-trade-collected`)) setReadCount(c, 'tradeCollected', num(g(`${cid}-trade-collected`).value));
+  if(g(`${cid}-trade-made`)) setReadCount(c, 'tradeMade', num(g(`${cid}-trade-made`).value));
+  if(g(`${cid}-patch`)) c.patch = g(`${cid}-patch`).value.trim();
+  if(g(`${cid}-notes`)) c.notes = g(`${cid}-notes`).value;
+  if(g(`${cid}-server-pdc`)) c.server.pdc = g(`${cid}-server-pdc`).value;
+  if(g(`${cid}-server-ldc`)) c.server.ldc = g(`${cid}-server-ldc`).value;
+  if(g(`${cid}-server-world`)) c.server.world = g(`${cid}-server-world`).value;
+
+  QUEST_CATS.forEach(([key])=>{
+    if(g(`${cid}-quest-${key}`)) c.quests[key] = num(g(`${cid}-quest-${key}`).value);
+    if(g(`${cid}-total-${key}`)) c.questTotals[key] = num(g(`${cid}-total-${key}`).value);
+  });
+  MSQ_EXPANSIONS.forEach(([key])=>{
+    if(g(`${cid}-msqexp-${key}`)) c.msqBreakdown[key] = num(g(`${cid}-msqexp-${key}`).value);
+    if(g(`${cid}-msqexptotal-${key}`)) c.msqBreakdownTotals[key] = num(g(`${cid}-msqexptotal-${key}`).value);
+  });
+  COMBAT_JOBS.forEach(([name])=>{
+    const el = g(`${cid}-combat-${name.replace(/\s/g,'')}`);
+    if(el) c.combat[name] = num(el.value);
+  });
+  CRAFT_JOBS.forEach(name=>{ if(g(`${cid}-craft-${name}`)) c.craft[name] = num(g(`${cid}-craft-${name}`).value); });
+  GATHER_JOBS.forEach(name=>{ if(g(`${cid}-gather-${name}`)) c.gather[name] = num(g(`${cid}-gather-${name}`).value); });
+
+  c.custom.forEach(item=>{
+    if(g(`${cid}-custom-label-${item.id}`)) item.label = g(`${cid}-custom-label-${item.id}`).value;
+    if(g(`${cid}-custom-cur-${item.id}`)) item.current = num(g(`${cid}-custom-cur-${item.id}`).value);
+    if(g(`${cid}-custom-total-${item.id}`)) item.total = num(g(`${cid}-custom-total-${item.id}`).value);
+  });
+  c.routines.forEach(item=>{
+    if(g(`${cid}-rt-label-${item.id}`)) item.label = g(`${cid}-rt-label-${item.id}`).value;
+    if(g(`${cid}-rt-sched-${item.id}`)) item.schedId = g(`${cid}-rt-sched-${item.id}`).value;
+    if(g(`${cid}-rt-req-${item.id}`)) item.requires = g(`${cid}-rt-req-${item.id}`).value.trim();
+  });
+  ALLIED_SOCIETIES.forEach(([name])=>{
+    const id = socId(name);
+    if(g(`${cid}-soc-rank-${id}`)) c.societies[name].rank = num(g(`${cid}-soc-rank-${id}`).value);
+    if(g(`${cid}-soc-points-${id}`)) c.societies[name].points = num(g(`${cid}-soc-points-${id}`).value);
+  });
+}
+
+/* ---------- switcher ---------- */
+/* The character block at the top of the rail: the active character's name and
+   world, and a dropdown to change character or add one. */
+function renderSwitcher(){ renderCharBlock(); }
+/* One Vue app on #switcher. The select follows DATA.activeId, so it is bound. */
+const CharBlock = {
+  props: ['state'],
+  setup: () => ({onCharSelect}),
+  template: `
+    <div class="char-name">{{ state.name }}</div>
+    <div class="char-sub">{{ state.sub }}</div>
+    <select class="char-sel" aria-label="Character" :value="state.active" @change="onCharSelect($event.target)">
+      <option v-for="o in state.opts" :key="o.id" :value="o.id">{{ o.name }}</option>
+      <option v-if="state.canAdd" value="+add">+ Add a character</option>
+    </select>`
+};
+function renderCharBlock(){
+  const capNote = document.getElementById('cap-note');
+  if(!DATA) return;
+  const state = boxState('switcher', CharBlock);
+  if(!state) return;
+  const c = getChar(DATA.activeId);
+  const i = DATA.chars.indexOf(c);
+  const s = (c && c.server) || {};
+  document.getElementById('switcher').style.setProperty('--accent', `var(--${ACCENTS[Math.max(0, i) % ACCENTS.length]})`);
+  Object.assign(state, {
+    name: (c && c.name) || 'Unnamed',
+    sub: [s.world, s.ldc, s.pdc].filter(Boolean).join(' · ') || `Character ${i + 1}`,
+    active: DATA.activeId,
+    opts: DATA.chars.map(x => ({id: x.id, name: x.name || 'Unnamed'})),
+    canAdd: DATA.chars.length < 3
+  });
+  capNote.style.display = DATA.chars.length >= 3 ? '' : 'none';
+}
+function setMobileRailOpen(open){
+  const rail = document.getElementById('rail');
+  const toggle = document.getElementById('mobile-menu-toggle');
+  const backdrop = document.getElementById('rail-backdrop');
+  if(!rail || !toggle || !backdrop) return;
+  const wasOpen = rail.classList.contains('mobile-open');
+  const shouldOpen = typeof open === 'boolean' ? open : !wasOpen;
+  if(shouldOpen === wasOpen) return;
+  rail.classList.toggle('mobile-open', shouldOpen);
+  backdrop.hidden = !shouldOpen;
+  document.body.classList.toggle('mobile-menu-open', shouldOpen);
+  toggle.setAttribute('aria-expanded', String(shouldOpen));
+  toggle.setAttribute('aria-label', shouldOpen ? 'Close navigation' : 'Open navigation');
+  if(shouldOpen) rail.querySelector('.area')?.focus();
+  else toggle.focus({preventScroll:true});
+}
+function toggleMobileRail(){ setMobileRailOpen(); }
+window.matchMedia('(max-width:820px), (orientation:portrait)').addEventListener('change', event => {
+  if(!event.matches) setMobileRailOpen(false);
+});
+document.addEventListener('keydown', event => {
+  if(event.key === 'Escape') setMobileRailOpen(false);
+});
+function onCharSelect(sel){
+  if(sel.value === '+add') addCharacter();
+  else setActiveChar(sel.value);
+}
+function setActiveChar(cid){
+  setMobileRailOpen(false);
+  collectAllInputs();
+  DATA.activeId = cid;
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active', p.id === 'page-'+cid));
+  applyArea(cid);
+  renderNav();
+  updateResetBar();
+  scheduleSave();
+}
+function addCharacter(){
+  if(DATA.chars.length >= 3) return;
+  collectAllInputs();
+  const c = newCharacter('');
+  DATA.chars.push(c);
+  DATA.activeId = c.id;
+  rebuildPages();
+  renderSwitcher();
+  const nameEl = document.getElementById(`${c.id}-name`);
+  if(nameEl) nameEl.focus();
+  scheduleSave();
+}
+function removeCharacter(cid){
+  const c = getChar(cid);
+  if(!c) return;
+  const label = (c.name||'').trim() || 'this character';
+  if(!confirm(`Remove ${label}? This deletes everything tracked for them and can't be undone.`)) return;
+  collectAllInputs();
+  DATA.chars = DATA.chars.filter(x=>x.id!==cid);
+  if(DATA.chars.length === 0) DATA.chars.push(newCharacter(''));
+  DATA.activeId = DATA.chars[0].id;
+  rebuildPages();
+  renderSwitcher();
+  scheduleSave();
+}
+
+/* ---------- per-character page markup ---------- */
+/* The page skeleton for one character. It never redraws: it has no reactive data,
+   and the renderers fill its boxes by id (many of them with their own Vue apps).
+   initCollapsible and applyFrames change these elements by hand afterwards, so
+   classes stay static. The char header is pinned under the frame row, and a direct
+   child of .page rather than a section, so it stays put for the whole scroll instead
+   of only while the first section is on screen. It holds the name, the MSQ box and
+   Remove character: scrolling used to carry all three under the sticky frame row,
+   where clicks landed on the row and the buttons could not be used. */
+const CharPage = {
+  props: ['cid'],
+  setup(){
+    const elsewhere = ELSEWHERE_LINKS.map(([n, url, what]) =>
+      ({n, url, what, short: url.replace(/^https:\/\/(www\.)?/, '').replace(/\/$/, '')}));
+    return {
+      TICKABLE_FRAMES, ELITE_MARK_TOTAL, elsewhere,
+      raFrames: 'red-alerts ' + RED_ALERT_ZONES.map(frameSlug).join(' '),
+      huntFrames: ELITE_MARKS.map(([x]) => frameSlug(x)).join(' '),
+      onNameInput, onPatchInput, removeCharacter, toggleEditTotals, onPlaytimeInput,
+      resetRoutines, addRoutine, toggleSocietiesManual, onMainInput, addCustomRow, scheduleSave
+    };
+  },
+  template: `
+  <div class="char-header">
+    <div class="char-name-group">
+      <input type="text" class="char-name-input" :id="cid+'-name'" placeholder="Character name" @input="onNameInput(cid)">
+      <span class="patch-box">MSQ progress <input type="text" :id="cid+'-patch'" class="patch-input" placeholder="4.0" @input="onPatchInput(cid)"></span>
+    </div>
+    <button class="remove-char-btn" @click="removeCharacter(cid)">Remove character</button>
+  </div>
+  <div class="section char-dash-section">
+    <span class="cap" :id="cid+'-tm-sync-note'"></span>
+    <div class="server-picker" :id="cid+'-server-picker'"></div>
+    <div class="dash-grid" :id="cid+'-dash'"></div>
+  </div>
+
+  <div class="tab-panel" data-tab="overview">
+  <div class="section" data-frame="progress">
+    <h2>Quest categories <span class="hint-group"><span class="plugin-mode" :id="cid+'-pluginmode'"></span><button class="edit-btn" :id="cid+'-totals-edit-btn'" @click="toggleEditTotals(cid)">Edit totals</button></span></h2>
+    <div class="quest-grid" :id="cid+'-quests'"></div>
+    <div class="check-note" :id="cid+'-overall-check'"></div>
+  </div>
+  <div class="section" data-frame="session">
+    <h2>Session</h2>
+    <table><tbody>
+      <tr><td style="width:160px;color:var(--text-faint)">Cumulative playtime</td><td>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <input type="text" :id="cid+'-playtime-days'" class="playtime-input" @input="onPlaytimeInput(cid)"><span class="cap">d</span>
+          <input type="text" :id="cid+'-playtime-hours'" class="playtime-input" @input="onPlaytimeInput(cid)"><span class="cap">h</span>
+          <span class="cap" :id="cid+'-playtime-total'" style="margin-left:8px"></span>
+          <span class="cap" :id="cid+'-playtime-asof'" style="margin-left:8px"></span>
+        </div>
+      </td></tr>
+    </tbody></table>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="routines">
+  <div class="section">
+    <h2>Routines <span class="hint-group"><span class="hint">clears itself on the game's reset</span><button class="edit-btn" @click="resetRoutines(cid)">Reset to defaults</button></span></h2>
+    <div class="routine-list" :id="cid+'-routines'"></div>
+    <div :id="cid+'-lastdone'" data-frame="last-completed"></div>
+    <div class="gated-note" :id="cid+'-gated'" :data-frame="TICKABLE_FRAMES"></div>
+    <div class="hidden-note" :id="cid+'-hiddennote'" :data-frame="TICKABLE_FRAMES"></div>
+    <button class="add-btn" :data-frame="TICKABLE_FRAMES" @click="addRoutine(cid)">+ Add routine</button>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="jobs">
+  <div class="section">
+    <h2>Job levels</h2>
+    <div data-frame="combat">
+      <div class="subhead">Combat &middot; cap 100 (Blue Mage 80, Beastmaster 50)</div>
+      <div :id="cid+'-combat'" class="job-columns"></div>
+    </div>
+    <div data-frame="craft">
+      <div class="subhead">Crafting &middot; cap 100</div>
+      <table :id="cid+'-craft'"></table>
+    </div>
+    <div data-frame="gather">
+      <div class="subhead">Gathering &middot; cap 100</div>
+      <table :id="cid+'-gather'"></table>
+    </div>
+    <div data-frame="items">
+      <div class="subhead">Quest items &middot; what the job quests ask you to hand in</div>
+      <div :id="cid+'-qitems'"></div>
+    </div>
+    <div class="gated-note" :id="cid+'-jobsnote'"></div>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="cosmic">
+  <div class="section" data-frame="tools">
+    <h2>Cosmic tools <span class="hint">via Tales of Milestones &mdash; research data per class</span></h2>
+    <div :id="cid+'-cosmic-meta'"></div>
+    <div :id="cid+'-cosmic'" class="cosmic-columns"></div>
+  </div>
+  <div class="section" :data-frame="raFrames">
+    <h2>Red Alerts <span class="hint">reference &mdash; <a href="https://linkly.link/2ugww" target="_blank" rel="noopener">wiki "Red Alert", revision 12 June 2026</a></span></h2>
+    <p class="ra-intro">Each zone and weather has one or two variants. Each variant opens two regions, and each region has critical missions for two or three classes. Red Alerts have no fixed schedule, and each world and zone has its own. This table does not show which Red Alert occurs next.</p>
+    <div :id="cid+'-ra-bar'"></div>
+    <div :id="cid+'-redalert'"></div>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="journey">
+  <div class="section">
+    <h2>Journey <span class="hint">via Tales of Milestones &mdash; questlines, duties and exploration, from Copy everything</span></h2>
+    <div :id="cid+'-journey'"></div>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="collections">
+  <div class="section">
+    <h2>Collections <span class="hint">via Tales of Milestones &mdash; totals from FFXIV Collect, refreshed daily</span></h2>
+    <div :id="cid+'-coll'"></div>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="societies">
+  <div class="section">
+    <h2>Allied society relations <span class="hint-group"><span class="hint" :id="cid+'-sochint'">rank + points reset to 0 on every rank-up</span><button class="link-btn" :id="cid+'-socmode-btn'" @click="toggleSocietiesManual(cid)">Edit manually</button></span></h2>
+    <div :id="cid+'-societies'" class="society-columns"></div>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="hunts">
+  <div class="section" data-frame="summary">
+    <h2>Marks slain <span class="hint">{{ ELITE_MARK_TOTAL }} A and S ranks across six expansions</span></h2>
+    <div class="dash-grid" :id="cid+'-hunt-dash'"></div>
+    <div class="check-note ok" :id="cid+'-hunt-tally'"></div>
+  </div>
+  <div class="section" :data-frame="huntFrames">
+    <h2>Elite marks
+      <span class="hint">ticked by hand &mdash; no import fills this in</span>
+    </h2>
+    <div :id="cid+'-hunts'" class="hunt-columns"></div>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="mentor">
+  <div class="section" data-frame="battle">
+    <h2>Battle Mentor requirements
+      <span class="hint">1000 dungeons &middot; 1500 comms &middot; tank + healer + 1 dps role quest</span>
+    </h2>
+    <table style="margin-bottom:10px"><tbody>
+      <tr><td style="width:120px"><input type="text" :id="cid+'-duty'" style="text-align:right" @input="onMainInput(cid)"></td><td style="color:var(--text-faint)">/ 1,000 duty completions</td><td style="text-align:right" :id="cid+'-duty-asof'"></td></tr>
+      <tr><td><input type="text" :id="cid+'-comm'" style="text-align:right" @input="onMainInput(cid)"></td><td style="color:var(--text-faint)">/ 1,500 commendations</td><td></td></tr>
+    </tbody></table>
+    <div :id="cid+'-roles'"></div>
+  </div>
+  <div class="section" data-frame="trade">
+    <h2>Trade mentor requirements <span class="hint">300 collectables &middot; 100 synthesized &middot; a craft + gather job at 100</span></h2>
+    <table style="margin-bottom:10px"><tbody>
+      <tr><td style="width:140px"><input type="text" :id="cid+'-trade-collected'" style="text-align:right" @input="onMainInput(cid)"></td><td style="color:var(--text-faint)">/ 300 collectables gathered or caught</td><td style="width:60px" :id="cid+'-trade-collected-done'"></td></tr>
+      <tr><td><input type="text" :id="cid+'-trade-made'" style="text-align:right" @input="onMainInput(cid)"></td><td style="color:var(--text-faint)">/ 100 collectables synthesized</td><td style="width:60px" :id="cid+'-trade-made-done'"></td></tr>
+    </tbody></table>
+    <div :id="cid+'-trade-jobs'"></div>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="notes">
+  <div class="section" data-frame="trackers">
+    <h2>Custom trackers <span class="hint">achievements, mounts, minions, logs &mdash; add your own</span></h2>
+    <div class="custom-list" :id="cid+'-custom'"></div>
+    <button class="add-btn" @click="addCustomRow(cid)">+ Add tracker</button>
+  </div>
+  <div class="section" data-frame="notes">
+    <h2>Notes</h2>
+    <textarea class="note-area" :id="cid+'-notes'" placeholder="Anything worth remembering — GC, retainers, sync points, whatever." @input="scheduleSave()"></textarea>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="events">
+  <div class="section">
+    <h2>Events <span class="hint">from the Lodestone, the same feed as Tales of Milestones&rsquo;s Active Events &middot; checked every 6 hours</span></h2>
+    <div :id="cid+'-events'"></div>
+  </div>
+  </div>
+  <div class="tab-panel" data-tab="elsewhere">
+  <div class="section">
+    <h2>Other sites <span class="hint">for what the Ledger does not do &middot; each link opens in a new tab</span></h2>
+    <div class="out"><a v-for="l in elsewhere" :key="l.url" :href="l.url" target="_blank" rel="noopener"><b>{{ l.n }}</b><span>{{ l.what }}</span><code>{{ l.short }}</code></a></div>
+  </div>
+  </div>`
+};
+/* All the pages, one app on #pages. Each rebuild mounts a new app, so the pages are
+   new elements, drawn at once, before the renderers below look them up by id. */
+const CharPages = {
+  props: ['ids', 'activeId'],
+  components: {CharPage},
+  template: `<div v-for="id in ids" :key="id" :class="id === activeId ? 'page active' : 'page'" :id="'page-'+id"><char-page :cid="id"></char-page></div>`
+};
+let pagesApp = null;
+function rebuildPages(){
+  if(pagesApp) pagesApp.unmount();
+  pagesApp = Vue.createApp(CharPages, {ids: DATA.chars.map(c => c.id), activeId: DATA.activeId});
+  pagesApp.mount('#pages');
+  DATA.chars.forEach(c=>renderChar(c.id));
+  initCollapsible();
+  DATA.chars.forEach(c=>applyArea(c.id));
+  renderNav();
+}
+
+/* ---------- tabs ---------- */
+/* Sections are grouped rather than stacked, so reaching routines is a click
+   instead of a scroll past everything else. Each character remembers its own
+   tab, since two characters are usually being tracked for different reasons. */
+function activeTab(cid){
+  const saved = (DATA.ui.tabs||{})[cid];
+  const exists = saved && document.querySelector(`#page-${cid} .tab-panel[data-tab="${saved}"]`);
+  return exists ? saved : 'overview';
+}
+
+function switchTab(cid, tab){
+  DATA.ui.tabs = DATA.ui.tabs || {};
+  DATA.ui.tabs[cid] = tab;
+  applyTab(cid, tab);
+  renderRail();
+  renderFrameRow();
+  scheduleSave();
+}
+
+/* ---------- last completed ----------
+   The one place the tracker states when you actually did something. Every
+   other column shows a reset clock, which answers a different question.
+
+   The time is shown in the reader's own zone, because "when did I last do
+   this" is a human moment rather than a reset instant. The row's tooltip
+   carries the UTC value, which is what the record actually stores. */
+const TICKABLE_FRAMES = ROUTINE_SECTIONS.map(frameSlug).join(' ');
+
+function agoText(ms){
+  const mins = Math.floor(ms / 60000);
+  if(mins < 60) return Math.max(0, mins) + 'm ago';
+  const h = Math.floor(mins / 60);
+  if(h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+/* Two ways to name a zone, because neither suits everyone. The abbreviation is
+   the browser's, and only exists where its locale knows the zone — Yukon has
+   had permanent time since 2020 and still returns GMT-7. The offset is worked
+   out from the date, so it always resolves and always looks the same. Both are
+   read from the date being shown, so a row recorded under a different daylight
+   saving rule is labelled with its own zone. */
+function zoneAbbr(d){
+  try{
+    const part = new Intl.DateTimeFormat(undefined, {timeZoneName:'short'})
+      .formatToParts(d).find(x => x.type === 'timeZoneName');
+    return part ? part.value : '';
+  }catch(e){ return ''; }
+}
+function zoneOffset(d){
+  const mins = -d.getTimezoneOffset();
+  if(!mins) return 'UTC';
+  const a = Math.abs(mins), h = Math.floor(a / 60), m = a % 60;
+  return 'UTC' + (mins < 0 ? '-' : '+') + h + (m ? ':' + String(m).padStart(2,'0') : '');
+}
+function zoneLabel(d){ return DATA.ui.zoneStyle === 'offset' ? zoneOffset(d) : zoneAbbr(d); }
+function toggleZoneStyle(){
+  DATA.ui.zoneStyle = DATA.ui.zoneStyle === 'offset' ? 'abbr' : 'offset';
+  DATA.chars.forEach(c => renderLastCompleted(c.id));
+  DATA.chars.forEach(c => applyFrames(c.id, 'routines'));
+  scheduleSave();
+}
+
+/* Drawn by Vue (boxState): renderLastCompleted bumps state.tick and lastDoneView
+   works the list out again. Read-only apart from the time-zone switch. */
+function lastDoneView(c){
+  const rows = (c.routines||[]).filter(r => r.lastDone).sort((a,b) => b.lastDone - a.lastDone);
+  if(!rows.length) return null;
+  const now = Date.now();
+  const headZone = zoneLabel(new Date());
+  const offsetOn = DATA.ui.zoneStyle === 'offset';
+  return {
+    headZone, offsetOn, never: (c.routines||[]).length - rows.length,
+    switchNote: offsetOn ? '' : ' — ' + zoneOffset(new Date()) + ' instead of ' + zoneAbbr(new Date()),
+    rows: rows.map(r=>{
+      const d = new Date(r.lastDone);
+      const rowZone = zoneLabel(d);
+      // Day first on a 24 hour clock, to match every other time on the page.
+      return {id: r.id, label: r.label, section: routineSection(r), utc: d.toUTCString(),
+        when: d.toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:false}),
+        zone: rowZone && rowZone !== headZone ? rowZone : '', ago: agoText(now - r.lastDone)};
+    })
+  };
+}
+const LastDone = {
+  props: ['state'],
+  setup(props){
+    const view = Vue.computed(() => { props.state.tick; const c = getChar(props.state.cid); return c ? lastDoneView(c) : null; });
+    return {view, toggleZoneStyle};
+  },
+  template: `
+    <div v-if="!view" class="empty-hint">No routine has been ticked yet. Tick one in any frame and it appears here.</div>
+    <template v-else>
+      <div class="done-head"><span>Routine</span><span>Section</span><span>Last done{{ view.headZone ? ' (' + view.headZone + ')' : '' }}</span><span class="r">Ago</span></div>
+      <div v-for="r in view.rows" :key="r.id" class="done-item" :title="r.utc">
+        <span class="dn-label">{{ r.label }}</span>
+        <span class="dn-frame">{{ r.section }}</span>
+        <span class="dn-when">{{ r.when }}<span v-if="r.zone" class="dn-zone">{{ r.zone }}</span></span>
+        <span class="dn-ago">{{ r.ago }}</span>
+      </div>
+      <div v-if="view.never" class="gated-note">{{ view.never }} routine{{ view.never === 1 ? '' : 's' }} {{ view.never === 1 ? 'has' : 'have' }} never been ticked</div>
+      <div class="opt-switch">
+        <span class="sw" :class="{on: view.offsetOn}" role="switch" tabindex="0" :aria-checked="String(view.offsetOn)" @click="toggleZoneStyle()"></span>
+        <label @click="toggleZoneStyle()">Name the time zone as an offset{{ view.switchNote }}</label>
+      </div>
+    </template>`
+};
+function renderLastCompleted(cid){
+  const state = boxState(cid + '-lastdone', LastDone);
+  if(state) Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+}
+
+function refreshNav(cid){
+  if(!DATA || cid !== DATA.activeId) return;
+  renderNav();
+}
+
+/* ---------- areas (Layout A, The Rail) ----------
+   The rail lists seven areas. Each area's frame row lists slices of the panels
+   that are already drawn: a frame is a (panel, frame) pair, so Story can hold
+   the quest categories from one panel and the questlines from another. The
+   panels and their inputs are unchanged; an area only picks which panel is
+   active and which of its frames is on.
+
+   A frame of '*' turns on every block in its panel. '@exp' resolves to the
+   expansion picked on the route line, or '*' when none is picked. */
+const AREAS = [
+  // "Daily" in the rail, with Weekly and Seasonal as extra rows into this same
+  // area (stop-gap until Evercold, 22 Oct 2026). The key stays 'today' so saved
+  // navigation state keeps working.
+  {key:'today', label:'Daily', frames:c => framesFor('routines', c)
+      .map(f => ({tab:'routines', frame:f.k, l:f.l, n:f.n, p:f.p}))
+      .concat([{tab:'events', frame:'*', l:'Events', n:currentEvents().length, p:seasonalMeter(c)},
+               {tab:'notes', frame:'trackers', l:'Trackers'},
+               {tab:'notes', frame:'notes', l:'Notes'}]),
+    meter:c => todayMeter(c),
+    extra:[{label:'Weekly', frame:'routines:weekly', meter:c => weeklyMeter(c)},
+           {label:'Seasonal', frame:'events:*', meter:c => seasonalMeter(c)}]},
+  {key:'story', label:'Story', frames:() => [
+      {tab:'overview', frame:'progress', l:'Quest categories'},
+      {tab:'journey', frame:'questlines', l:'Questlines'},
+      {tab:'journey', frame:'seasonal', l:'Seasonal'},
+      {tab:'overview', frame:'session', l:'Session'}],
+    meter:c => c.questTotals && c.questTotals.overall ? Math.round(pct(c.quests.overall, c.questTotals.overall)) : null},
+  // Relics left Story on 24 Oct 2026 (user's call): an overview, then one frame per expansion.
+  {key:'relics', label:'Relics', frames:() => [{tab:'journey', frame:'relics', l:'Overview'}]
+      .concat(relicExpansions().map(ex => ({tab:'journey', frame:relicFrameKey(ex), l:EXPANSION_NAMES[ex]}))),
+    meter:c => relicsMeter(c)},
+  {key:'jobs', label:'Jobs', frames:c => framesFor('jobs', c)
+      .map(f => ({tab:'jobs', frame:f.k, l:f.l, n:f.n}))
+      .concat([{tab:'mentor', frame:'battle', l:'Battle Mentor'},
+               {tab:'mentor', frame:'trade', l:'Trade Mentor'},
+               {tab:'cosmic', frame:'tools', l:'Cosmic tools'},
+               {tab:'cosmic', frame:'red-alerts', l:'Red Alerts'}])},
+  {key:'duties', label:'Duties', splits:true, frames:c => [
+      {tab:'journey', frame:'duties', l:'Duty clears', n:hasCollections(c) ? ownedSet(c, 'dutiesDone').size : null}],
+    meter:c => dutiesMeter(c)},
+  {key:'collections', label:'Collections', splits:true, frames:c => framesFor('collections', c)
+      .map(f => ({tab:'collections', frame:f.k, l:f.l, n:f.n})),
+    meter:c => collectionsMeter(c)},
+  {key:'world', label:'World', splits:true, frames:() => [
+      {tab:'societies', frame:'@exp', l:'Allied societies'},
+      {tab:'hunts', frame:'@exp', l:'Hunts'},
+      {tab:'journey', frame:'exploration', l:'Exploration'},
+      {tab:'journey', frame:'mountspeed', l:'Mount speed'}]},
+  {key:'elsewhere', label:'Elsewhere', frames:() => [{tab:'elsewhere', frame:'*', l:'Other sites'}]}
+];
+function areaFrameId(f){ return f.tab + ':' + f.frame; }
+
+/* Meters are shown only where one honest measure exists. Jobs and World have
+   none yet, so they show no meter. */
+/* Share of routines done this period, for the given sections. Only routines in
+   use count: ticked at least once, and last ticked within 30 days, so a routine
+   never started or given up does not hold the figure down. A stop-gap, from a
+   player's suggestion on 22 Oct 2026, until Evercold's reset changes are known. */
+/* The 30 days are game days: the window starts at the daily reset (15:00 UTC)
+   30 resets back, so a routine leaves the figures at a reset, the way the game
+   counts days, and never in the middle of one (user's call, 22 Oct 2026). */
+const ACTIVE_RESETS = 30;
+function activeWindowStart(now){
+  return lastResetInstant(schedById('daily15'), now) - (ACTIVE_RESETS - 1) * DAY_MS;
+}
+function sectionMeter(c, sections){
+  const now = new Date();
+  const since = activeWindowStart(now);
+  const rows = (c.routines||[]).filter(r =>
+    (c.showGated || !isLocked(r, c)) && (c.showHidden || !r.hidden)
+    && sections.includes(routineSection(r)) && !routineFinished(r, c)
+    && r.lastDone && r.lastDone >= since);
+  return rows.length ? Math.round(rows.filter(r => isRoutineDone(r, now)).length / rows.length * 100) : null;
+}
+function todayMeter(c){ return sectionMeter(c, ['Daily']); }
+function weeklyMeter(c){ return sectionMeter(c, ['Weekly', CHALLENGE_SECTION]); }
+
+/* Seasonal: of the running seasonal events that have quests, how many have every
+   quest of this run done. Broadcasts (Fan Fest stage events) have none and are
+   left out. A yearly event's run is the newest festival of its quest group;
+   a returning collaboration reuses its first run, so it is named here
+   (Fall Guys = 148, quest 4801; Keybound Brawler = 257, quest 5466; FFXV
+   crossover = 84, quests 3158-3160, under either title the feed has used,
+   the same two Time Memoria's Active Events maps). A collaboration that
+   returns under a new name needs one more line here. */
+const FEED_FESTIVAL_ALIASES = [['Fall Guys', 148], ['Keybound', 257],
+  ['FINAL FANTASY XV', 84], ['Nocturne for Heroes', 84]];
+function eventFestival(e){
+  if(typeof TM_FESTIVAL_QUESTS === 'undefined') return null;
+  const alias = FEED_FESTIVAL_ALIASES.find(([word]) => e.name.includes(word));
+  if(alias) return TM_FESTIVAL_QUESTS[alias[1]] ? alias[1] : null;
+  const flat = s => s.replace(/['’‘]/g, '').toLowerCase();
+  const title = flat(e.name);
+  const ids = Object.keys(TM_FESTIVAL_QUESTS).filter(id => {
+    const stem = flat(TM_FESTIVAL_QUESTS[id][0].replace(/ Events$/, ''));
+    return stem.length >= 4 && title.includes(stem);
+  }).map(Number);
+  return ids.length ? Math.max(...ids) : null;
+}
+function seasonalMeter(c){
+  if(!hasCollections(c)) return null;
+  const done = ownedSet(c, 'questsDone');
+  const runs = [...new Set(runningEvents().filter(e => !e.broadcast).map(eventFestival).filter(Boolean))];
+  if(!runs.length) return null;
+  return Math.round(runs.filter(f => TM_FESTIVAL_QUESTS[f][1].every(id => done.has(id))).length / runs.length * 100);
+}
+function dutiesMeter(c){
+  if(!hasCollections(c)) return null;
+  const done = ownedSet(c, 'dutiesDone');
+  const ids = Object.keys(TM_DUTIES).filter(id => DUTY_TYPES.indexOf(TM_DUTIES[id][1]) >= 0);
+  return ids.length ? Math.round(ids.filter(id => done.has(+id)).length / ids.length * 100) : null;
+}
+function collectionsMeter(c){
+  if(!hasCollections(c) || typeof COLLECTION_LISTS === 'undefined') return null;
+  let have = 0, all = 0;
+  COLLECTION_KINDS.forEach(k => {
+    const list = COLLECTION_LISTS.lists[k.key] || [], owned = ownedSet(c, k.key);
+    all += list.length; have += list.filter(r => owned.has(r[0])).length;
+  });
+  return all ? Math.round(have / all * 100) : null;
+}
+
+function areaState(cid){
+  DATA.ui.areas = DATA.ui.areas || {};
+  const s = DATA.ui.areas[cid] = DATA.ui.areas[cid] || {area:null, frames:{}};
+  if(!AREAS.some(a => a.key === s.area)) s.area = 'today';
+  s.frames = s.frames || {};
+  return s;
+}
+function areaOf(key){ return AREAS.find(a => a.key === key) || AREAS[0]; }
+function activeArea(cid){ return areaOf(areaState(cid).area); }
+function areaFrames(cid){
+  const c = getChar(cid);
+  try{ return activeArea(cid).frames(c) || []; }catch(e){ return []; }
+}
+function activeAreaFrame(cid){
+  const list = areaFrames(cid);
+  if(!list.length) return null;
+  const saved = areaState(cid).frames[activeArea(cid).key];
+  return list.find(f => areaFrameId(f) === saved) || list[0];
+}
+/* '@exp' becomes the slug of the expansion picked on the route line. A slug the
+   panel does not offer (a society above the MSQ progress) falls back to all. */
+function resolveFrame(cid, f){
+  if(f.frame !== '@exp') return f.frame;
+  const exp = routeExp();
+  if(exp === null) return '*';
+  const slug = frameSlug(EXPANSION_NAMES[exp]);
+  return framesFor(f.tab, getChar(cid)).some(x => x.k === slug) ? slug : '*';
+}
+/* Points the old tab and frame state at the active area frame, then shows it. */
+function applyArea(cid){
+  const f = activeAreaFrame(cid);
+  const page = document.getElementById('page-'+cid);
+  if(!f || !page) return;
+  DATA.ui.tabs = DATA.ui.tabs || {};
+  DATA.ui.tabs[cid] = f.tab;
+  DATA.ui.frames = DATA.ui.frames || {};
+  DATA.ui.frames[cid] = DATA.ui.frames[cid] || {};
+  DATA.ui.frames[cid][f.tab] = resolveFrame(cid, f);
+  applyTab(cid, f.tab);
+  // The summary metrics belong to Story; elsewhere they repeat what the area shows.
+  const dash = page.querySelector('.char-dash-section');
+  if(dash) dash.hidden = activeArea(cid).key !== 'story';
+}
+function goArea(key){
+  if(globalPageOpen()) showGlobalPage(null);
+  areaState(DATA.activeId).area = key;
+  applyArea(DATA.activeId);
+  renderNav();
+  setMobileRailOpen(false);
+  window.scrollTo(0,0);
+  scheduleSave();
+}
+function goAreaFrame(id){
+  const s = areaState(DATA.activeId);
+  s.frames[s.area] = id;
+  applyArea(DATA.activeId);
+  renderNav();
+  window.scrollTo(0,0);
+  scheduleSave();
+}
+/* A rail row that opens one frame of an area (Weekly, Seasonal). */
+function goAreaToFrame(key, frameId){
+  goArea(key);
+  goAreaFrame(frameId);
+}
+function renderNav(){
+  renderRail();
+  renderRoute();
+  renderFrameRow();
+}
+
+/* ---------- route line ----------
+   One station per expansion. A segment fills to the quests done of the
+   expansion it leaves from, so the line from ARR to HW is ARR's share.
+   A station is done when the MSQ progress reaches the next expansion. Picking
+   a station narrows the areas that split by expansion (Duties, Collections,
+   World) and is the same for every character. */
+const ROUTE_STATIONS = EXPANSION_NAMES.map((n, i) => ({i, n, patch:i + 2}));
+function routeExp(){
+  const v = DATA && DATA.ui ? DATA.ui.routeExp : null;
+  return Number.isInteger(v) && v >= 0 && v < ROUTE_STATIONS.length ? v : null;
+}
+/* Time Memoria's own per-expansion figures (quests.byExp), the same numbers as
+   its Overview tab: six journal sections, levequests included. A count made
+   here from questsDone would leave levequests out, because they are not Quest
+   rows, and would disagree with the plugin. */
+function stationQuests(c, i){
+  const r = Array.isArray(c.questsByExp) ? c.questsByExp[i] : null;
+  return r && r[1] > 0 ? {have: r[0], total: r[1]} : null;
+}
+function routeStations(c){
+  const reached = patchValue(c.patch);
+  return ROUTE_STATIONS.map(s => {
+    const q = s.i < ROUTE_STATIONS.length - 1 ? stationQuests(c, s.i) : null;
+    const released = s.i < ROUTE_STATIONS.length - 1;
+    return Object.assign({}, s, {q, released, p: q ? jrPct(q.have, q.total) : 0,
+      done: released && reached !== null && reached >= s.patch + 1});
+  });
+}
+function routeView(){
+  const st = routeStations(getChar(DATA.activeId));
+  const sel = routeExp();
+  const open = st.find(s => s.released && !s.done);
+  const isOpen = s => !!open && s.i === open.i;
+  return {
+    segs: st.slice(0, -1).map(s => ({i: s.i, cls: isOpen(s) ? 'seg active' : 'seg', p: s.p})),
+    stations: st.map(s => {
+      const cls = !s.released ? 'locked' : s.done ? 'done' : (isOpen(s) ? 'active' : '');
+      return {i: s.i, n: s.n, sel: s.i === sel,
+        cls: `stn ${cls}${s.i === sel ? ' sel' : ''}`,
+        pc: !s.released ? '8.0' : s.q ? s.p + '%' : '—',
+        title: !s.released ? 'Expansion 8.0. The game sheets fill this in on release day.'
+          : s.q ? `${s.q.have.toLocaleString()} of ${s.q.total.toLocaleString()} quests done` : 'Import Copy everything from Tales of Milestones to fill this in.'};
+    }),
+    picked: sel !== null ? st[sel].n : '',
+    splits: !!activeArea(DATA.activeId).splits,
+    open: open ? open.n : '',
+    // No per-expansion figures at all: a character last imported before Time
+    // Memoria 3.8.0.15 shows a dash on every station, which reads as broken unless
+    // the line says why. The tooltip alone was not enough (22 Oct 2026).
+    noFigures: st.every(x => !x.released || !x.q)
+  };
+}
+/* The route line is one Vue app for the whole page (boxState on #route), drawn for the
+   active character. renderRoute bumps state.tick; state.hidden empties it while a
+   global page is open. */
+const RouteLine = {
+  props: ['state'],
+  setup(props){
+    const view = Vue.computed(() => { props.state.tick; return props.state.hidden || !DATA ? null : routeView(); });
+    return {view, pickStation};
+  },
+  template: `
+    <template v-if="view">
+      <div class="route-stations" tabindex="0" aria-label="Scroll expansion timeline">
+        <div class="track" aria-hidden="true"><span v-for="(s, i) in view.segs" :key="s.i" :class="s.cls" :style="{gridColumn: (2*i+2) + ' / span 2'}"><i :style="{width: s.p + '%'}"></i></span></div>
+        <button v-for="(s, i) in view.stations" :key="s.i" type="button" :style="{gridColumn: String(i+1)}" :class="s.cls" :title="s.title"
+          :aria-pressed="String(s.sel)" @click="pickStation(s.i)"><span class="dot"></span><span class="nm">{{ s.n }}</span><span class="pc">{{ s.pc }}</span></button>
+      </div>
+      <div class="route-note">
+        <template v-if="view.picked">
+          <template v-if="view.splits">Showing <b>{{ view.picked }}</b> only</template>
+          <template v-else><b>{{ view.picked }}</b> selected · this area spans every expansion</template>
+          <button type="button" @click="pickStation(null)">Show all expansions</button>
+        </template>
+        <template v-else-if="view.splits">All expansions · pick a station to narrow this area</template>
+        <template v-else-if="view.open">Now boarding: <b>{{ view.open }}</b></template>
+        <span v-if="view.noFigures" class="route-hint">Import <b>Copy everything</b> from Tales of Milestones 3.8 or later to fill in these percentages.</span>
+      </div>
+    </template>`
+};
+function renderRoute(){
+  if(!DATA) return;
+  const state = boxState('route', RouteLine);
+  if(!state) return;
+  const hidden = !!globalPageOpen();
+  Object.assign(state, {hidden, tick: (state.tick || 0) + 1});
+  if(!hidden) renderStationCard(routeStations(getChar(DATA.activeId)));
+}
+function pickStation(i){
+  DATA.ui.routeExp = (i === null || routeExp() === i) ? null : i;
+  DATA.chars.forEach(c => { renderCollections(c.id); renderJourney(c.id); });
+  applyArea(DATA.activeId);
+  renderNav();
+  scheduleSave();
+}
+/* Above the panels while a station is picked: that expansion's quest count. Each page
+   has its own card, one boxState app each (id cid-station-card), given the picked
+   station as state.s or null. */
+const StationCard = {
+  props: ['state'],
+  template: `
+    <div v-if="state.s" class="section"><h2>{{ state.s.n }}</h2>
+      <div v-if="!state.s.released" class="jr-note">Expansion 8.0. The game sheets fill this in on release day.</div>
+      <template v-else>
+        <template v-if="state.s.q">
+          <div class="jr-row"><span>Quests done</span><span class="jr-v">{{ state.s.have }} / {{ state.s.total }} · {{ state.s.p }}%</span><div class="jr-bar"><i :style="{width: state.s.p + '%'}"></i></div></div>
+          <div class="jr-note">The figures are the same as Tales of Milestones’s Overview: main scenario, chronicles, sidequests, allied society, class and job quests, and levequests.</div>
+        </template>
+        <div v-else class="jr-note">No quest data yet. Import Copy everything from Tales of Milestones.</div>
+        <div class="jr-note">The lists below show {{ state.s.n }} only.</div>
+      </template>
+    </div>`
+};
+function renderStationCard(st){
+  document.querySelectorAll('.station-card').forEach(el => {
+    const state = el.id && boxState(el.id, StationCard);
+    if(state) state.s = null;
+  });
+  // Directly under the pinned character line of the page on screen, so the
+  // line's negative top margin cannot cover it.
+  const head = document.querySelector(`#page-${DATA.activeId} .char-header`);
+  if(!head) return;
+  let box = head.nextElementSibling;
+  if(!box || !box.classList.contains('station-card')){
+    box = document.createElement('div');
+    box.className = 'station-card';
+    box.id = DATA.activeId + '-station-card';
+    head.after(box);
+  }
+  const state = boxState(box.id, StationCard);
+  if(!state) return;
+  const sel = routeExp();
+  if(sel === null || globalPageOpen() || !activeArea(DATA.activeId).splits) return;
+  const s = st[sel];
+  state.s = {n: s.n, released: s.released, q: !!s.q, p: s.p,
+    have: s.q ? s.q.have.toLocaleString() : '', total: s.q ? s.q.total.toLocaleString() : ''};
+}
+
+/* ---------- events ----------
+   events-feed.js, rebuilt every 6 hours by .github/workflows/events-feed.yml from
+   ffxiv-latest-news: the same feed as Time Memoria's Active Events, so the plugin
+   and the Ledger cannot disagree. One list feeds Today &rarr; Events and the rail
+   rotator. Feed times are UTC seconds. An event with no end runs until a patch
+   (note "Until Patch 8.0"); "estimated" marks an end taken from a reported patch
+   date. Replaced the hand-written list of 18 October 2026, which went stale. */
+function feedEvents(){
+  const list = typeof EVENTS_FEED !== 'undefined' && Array.isArray(EVENTS_FEED.events) ? EVENTS_FEED.events : [];
+  return list.map(e => ({name: e.title, url: e.url || '', from: e.start * 1000,
+    to: Number.isFinite(e.end) ? e.end * 1000 : null, note: e.endNote || '',
+    estimated: !!e.endEstimated, broadcast: e.category === 'broadcast'}));
+}
+function eventEnd(e){ return e.to === null ? Infinity : e.to; }
+/* Running and announced events, soonest first. */
+function currentEvents(){ const t = Date.now(); return feedEvents().filter(e => eventEnd(e) > t); }
+function runningEvents(){ const t = Date.now(); return currentEvents().filter(e => e.from <= t); }
+function fmtEventDay(ms){ return new Date(ms).toLocaleDateString('en-GB', {day:'numeric', month:'short', timeZone:'UTC'}); }
+function fmtEventTime(ms){ return new Date(ms).toISOString().slice(11, 16); }
+/* "7 Oct – 27 Oct", "31 Oct 02:00–04:00 UTC" for a broadcast, "From 28 Oct ·
+   until Patch 8.0 (about 23 Feb)" for an event that runs until a patch. */
+/* Plain text: Vue escapes it. */
+function eventWhen(e){
+  if(e.broadcast && e.to !== null)
+    return `${fmtEventDay(e.from)} ${fmtEventTime(e.from)}–${fmtEventTime(e.to)} UTC`;
+  if(e.note)
+    return `From ${fmtEventDay(e.from)} · ${e.note.replace(/^Until/, 'until')}${e.estimated && e.to !== null ? ` (about ${fmtEventDay(e.to)})` : ''}`;
+  return `${fmtEventDay(e.from)} – ${e.to !== null ? fmtEventDay(e.to) : '?'}`;
+}
+/* Today &rarr; Events, drawn by Vue. The list is the same for every character,
+   so each character's box gets its own small app with its own one-second clock;
+   the countdowns tick instead of moving every 30 seconds. */
+const EventList = {
+  setup(){
+    const now = Vue.ref(Date.now());
+    let timer;
+    Vue.onMounted(() => { timer = setInterval(() => { now.value = Date.now(); }, 1000); });
+    Vue.onUnmounted(() => clearInterval(timer));
+    const list = Vue.computed(() => { now.value; return currentEvents(); });
+    return {now, list, eventWhen, fmtCountdown};
+  },
+  template: `
+    <div v-if="list.length" class="jr-grid">
+      <div v-for="e in list" :key="e.name + e.from" class="ev-card">
+        <div class="ev-name"><a v-if="e.url" :href="e.url" target="_blank" rel="noopener">{{ e.name }}</a><template v-else>{{ e.name }}</template></div>
+        <div class="jr-note">{{ eventWhen(e) }}</div>
+        <div v-if="e.from > now" class="jr-row"><span>Starts in</span><span class="jr-v">{{ fmtCountdown(e.from - now) }}</span></div>
+        <div v-else-if="e.to !== null" class="jr-row"><span>Ends in{{ e.estimated ? ' (estimated)' : '' }}</span><span class="jr-v">{{ fmtCountdown(e.to - now) }}</span></div>
+      </div>
+    </div>
+    <div v-else class="jr-note">No event is running or announced.</div>`
+};
+/* Mounts the list once per box. When the pages are rebuilt (rebuildPages),
+   the box is a new element: it gets a new app and the old one is unmounted. */
+const eventApps = {};
+function renderEvents(cid){
+  const box = document.getElementById(cid + '-events');
+  if(!box) return;
+  const had = eventApps[cid];
+  if(had && had.box === box) return;
+  if(had) had.app.unmount();
+  const app = Vue.createApp(EventList);
+  app.mount(box);
+  eventApps[cid] = {app, box};
+}
+
+/* ---------- elsewhere ----------
+   Sites the Ledger does not replace. Plain links: no tracking script runs here. */
+const ELSEWHERE_LINKS = [
+  ['Teamcraft', 'https://ffxivteamcraft.com/', 'Crafting lists, simulator, rotations'],
+  ['FFXIV Collect', 'https://ffxivcollect.com/', 'Collections and relic catalogue'],
+  ['XIV ToDo', 'https://xivtodo.com/', 'Lodestone profile and duty grid (closes 3 June 2027)'],
+  ['Lalachievements', 'https://www.lalachievements.com/', 'Achievement rankings'],
+  ['Universalis', 'https://universalis.app/', 'Market board prices'],
+  ['Garland Tools', 'https://www.garlandtools.org/', 'Database and gathering timers'],
+  ['Carbuncle Plushy fish tracker', 'https://ff14fish.carbuncleplushy.com/', 'Fish windows'],
+  ['Icy Veins', 'https://www.icy-veins.com/ffxiv/', 'Guides and patch news'],
+  ['FFXIV wiki', 'https://ffxiv.consolegameswiki.com/', 'Game reference']
+];
+
+/* ---------- rail ----------
+   The sections are the old tabs. They are no longer listed in the rail; the
+   areas above group them. RAIL_SECTIONS stays as the list of panels, which
+   renderChar() walks to settle every panel's frames. */
+const RAIL_SECTIONS = [
+  {key:'overview',  label:'Overview',  group:'Progress',    ico:'◔'},
+  {key:'routines',  label:'Routines',  group:'Progress',    ico:'↻', count:visibleRoutineCount},
+  {key:'jobs',      label:'Jobs',      group:'Progress',    ico:'⚔', count:visibleJobCount},
+  {key:'cosmic',    label:'Cosmic',    group:'Progress',    ico:'✧', count:c=>Object.keys((c.cosmicTools||{}).jobs||{}).length},
+  {key:'journey',   label:'Journey',   group:'Progress',    ico:'⌖'},
+  {key:'collections', label:'Collections', group:'Collections', ico:'❖', count:c=>hasCollections(c) ? ownedSet(c,'mounts').size + ownedSet(c,'minions').size : ''},
+  {key:'societies', label:'Societies', group:'Collections', ico:'⚬', count:()=>ALLIED_SOCIETIES.length},
+  {key:'hunts',     label:'Hunts',     group:'Collections', ico:'✦', count:c=>Object.keys(c.hunts||{}).length},
+  {key:'mentor',    label:'Mentor',    group:'Collections', ico:'✚'},
+  {key:'notes',     label:'Notes',     group:'Personal',    ico:'✎'},
+  {key:'events',    label:'Events',    group:'Personal',    ico:'✶'},
+  {key:'elsewhere', label:'Elsewhere', group:'Personal',    ico:'↗'}
+];
+/* Counts use the same filters the panels use, so the number beside a section
+   is the number of rows that section will actually draw. */
+function visibleRoutineCount(c){
+  return (c.routines||[]).filter(r =>
+    (c.showGated || !isLocked(r, c)) && (c.showHidden || !r.hidden)).length;
+}
+function visibleJobCount(c){
+  if(c.showZeroJobs) return COMBAT_JOBS.length + CRAFT_JOBS.length + GATHER_JOBS.length;
+  const above = o => Object.values(o||{}).filter(v => v > 0).length;
+  return above(c.combat) + above(c.craft) + above(c.gather);
+}
+/* The rail's area buttons, one Vue app on #rail-nav. renderRail gives it a new list:
+   each area, then the extra rows that open one of its frames. */
+const RailNav = {
+  props: ['state'],
+  template: `
+    <button v-for="b in state.list" :key="b.key" type="button" :class="b.on ? 'area on' : 'area'" :title="b.label" :data-short="b.label.slice(0, 2)"
+      @click="b.go()"><span class="lbl">{{ b.label }}</span><span class="pct">{{ b.m === null ? '' : b.m + '%' }}</span><span v-if="b.m !== null" class="meter"><i :style="{width: b.m + '%'}"></i></span></button>`
+};
+function renderRail(){
+  if(!DATA) return;
+  const state = boxState('rail-nav', RailNav);
+  if(!state) return;
+  const c = getChar(DATA.activeId);
+  const current = globalPageOpen() ? null : activeArea(DATA.activeId).key;
+  const frameNow = current ? areaFrameId(activeAreaFrame(DATA.activeId) || {}) : null;
+  const meter = f => { try{ return (f && c) ? f(c) : null; }catch(e){ return null; } };
+  state.list = AREAS.flatMap(a => {
+    const extras = a.extra || [];
+    const extraOn = a.key === current && extras.some(x => x.frame === frameNow);
+    return [{key: a.key, label: a.label, m: meter(a.meter), on: a.key === current && !extraOn, go: () => goArea(a.key)}]
+      .concat(extras.map(x => ({key: a.key + ':' + x.frame, label: x.label, m: meter(x.meter),
+        on: a.key === current && x.frame === frameNow, go: () => goAreaToFrame(a.key, x.frame)})));
+  });
+  renderCharBlock();
+}
+function goSection(key){
+  const a = AREAS.find(x => { try{ return x.frames(getChar(DATA.activeId)).some(f => f.tab === key); }catch(e){ return false; } });
+  if(a) goArea(a.key);
+}
+
+/* ---------- frames ----------
+   A frame is a slice of a panel that is already drawn. Changing frame toggles
+   a class; nothing is re-rendered and nothing leaves the DOM, so every input
+   collectCharInputs() reads is still there whatever frame is on screen.
+
+   data-frame may hold several keys separated by spaces. A block that belongs
+   to more than one frame — the elite marks wrapper, which is wanted for every
+   expansion but not for the summary — lists them all. */
+function frameSlug(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
+
+function framesFor(section, c){
+  switch(section){
+    case 'overview':
+      return [{k:'progress', l:'Progress'}, {k:'session', l:'Session'}];
+    case 'routines': {
+      const visible = (c.routines||[]).filter(r =>
+        (c.showGated || !isLocked(r, c)) && (c.showHidden || !r.hidden));
+      const out = ROUTINE_SECTIONS
+        .filter(sec => visible.some(r => routineSection(r) === sec)
+                    || (sec === CHALLENGE_SECTION && challengeRowsExist(c)))
+        .map(sec => ({k:frameSlug(sec), l:sec,
+                      n:visible.filter(r => routineSection(r) === sec).length,
+                      p:sectionMeter(c, sec === COOLDOWN_SECTION ? [COOLDOWN_SECTION, 'Monthly'] : [sec])}));
+      out.push({k:'last-completed', l:'Last completed',
+                n:(c.routines||[]).filter(r => r.lastDone).length});
+      return out;
+    }
+    case 'jobs': {
+      const above = o => Object.values(o||{}).filter(v => v > 0).length;
+      return [
+        {k:'combat', l:'Combat',    n:c.showZeroJobs ? COMBAT_JOBS.length : above(c.combat)},
+        {k:'craft',  l:'Crafting',  n:c.showZeroJobs ? CRAFT_JOBS.length  : above(c.craft)},
+        {k:'gather', l:'Gathering', n:c.showZeroJobs ? GATHER_JOBS.length : above(c.gather)},
+        {k:'items',  l:'Quest items'}
+      ];
+    }
+    case 'cosmic':
+      return [{k:'tools', l:'Tools'}, {k:'red-alerts', l:'Red Alerts'}]
+        .concat(RED_ALERT_ZONES.map(z => ({k:frameSlug(z), l:z})));
+    case 'societies': {
+      const have = patchValue(c.patch);
+      return [...new Set(ALLIED_SOCIETIES.map(a=>a[1]))]
+        .filter(exp => !(have !== null && SOCIETY_EXP_GATE[exp] > have))
+        .map(exp => ({k:frameSlug(exp), l:exp,
+                      n:ALLIED_SOCIETIES.filter(a=>a[1]===exp).length}));
+    }
+    case 'hunts':
+      return [{k:'summary', l:'Summary'}].concat(
+        ELITE_MARKS.map(([exp, marks]) => ({k:frameSlug(exp), l:exp, n:marks.length})));
+    case 'mentor':
+      return [{k:'battle', l:'Battle'}, {k:'trade', l:'Trade'}];
+    case 'collections':
+      return [{k:'overview', l:'Overview'}].concat(COLLECTION_KINDS.map(k => ({k:frameSlug(k.key), l:k.label,
+        n: hasCollections(c) ? ownedSet(c, k.key).size : null})));
+    case 'journey':
+      return [{k:'questlines', l:'Questlines'}, {k:'relics', l:'Relics'}]
+        .concat(relicExpansions().map(ex => ({k:relicFrameKey(ex), l:EXPANSION_NAMES[ex]})))
+        .concat([{k:'seasonal', l:'Seasonal'},
+              {k:'duties', l:'Duties', n: hasCollections(c) ? ownedSet(c, 'dutiesDone').size : null},
+              {k:'exploration', l:'Exploration'}, {k:'mountspeed', l:'Mount speed'}]);
+    case 'notes':
+      return [{k:'trackers', l:'Trackers'}, {k:'notes', l:'Notes'}];
+  }
+  return [];
+}
+
+/* Remembered per character and per section, because two characters are usually
+   being tracked for different reasons. */
+function activeFrame(cid, section){
+  const c = getChar(cid);
+  const list = framesFor(section, c);
+  if(!list.length) return null;
+  DATA.ui.frames = DATA.ui.frames || {};
+  const saved = (DATA.ui.frames[cid] || {})[section];
+  if(saved === '*') return '*';
+  return list.some(f => f.k === saved) ? saved : list[0].k;
+}
+function goFrame(key){
+  const cid = DATA.activeId, section = activeTab(cid);
+  DATA.ui.frames = DATA.ui.frames || {};
+  DATA.ui.frames[cid] = DATA.ui.frames[cid] || {};
+  DATA.ui.frames[cid][section] = key;
+  renderFrameRow();
+  applyFrames(cid, section);
+  window.scrollTo(0,0);
+  scheduleSave();
+}
+function applyFrames(cid, section){
+  const panel = document.querySelector(`#page-${cid} .tab-panel[data-tab="${section}"]`);
+  if(!panel) return;
+  const frame = activeFrame(cid, section);
+  panel.querySelectorAll('[data-frame]').forEach(el=>{
+    const keys = String(el.dataset.frame).split(/\s+/);
+    el.classList.toggle('frame-on', frame === '*' || (frame !== null && keys.includes(frame)));
+  });
+}
+function syncPaneTopHeight(){
+  const top = document.querySelector('.pane-top');
+  if(top) document.documentElement.style.setProperty('--pane-top-h', top.offsetHeight + 'px');
+}
+/* The site bar is sticky above the rail and the pane, so both pin below it.
+   Measured, because the bar wraps to two lines in a narrow window. */
+function syncSitebarHeight(){
+  const bar = document.querySelector('.sitebar');
+  if(bar) document.documentElement.style.setProperty('--sitebar-h', bar.offsetHeight + 'px');
+}
+window.addEventListener('resize', syncPaneTopHeight);
+
+/* The frame row is one Vue app for the whole page (boxState on #frame-row), for the
+   active character's area. renderFrameRow gives it a new list each time, or an empty
+   one while a global page is open. */
+const FrameRow = {
+  props: ['state'],
+  setup: () => ({goAreaFrame}),
+  template: `
+    <button v-for="f in state.list" :key="f.id" type="button" role="tab" :aria-selected="String(f.on)" :class="f.on ? 'frame-btn on' : 'frame-btn'"
+      @click="goAreaFrame(f.id)">{{ f.l }}<template v-if="f.n"> <span class="frame-n">{{ f.n }}</span></template><template v-if="f.p"> <span class="frame-n">· {{ f.p }}%</span></template></button>`
+};
+function renderFrameRow(){
+  if(!DATA) return;
+  const state = boxState('frame-row', FrameRow);
+  if(!state) return;
+  // The row's height sets where the panels start, so measure it once Vue has drawn it.
+  Vue.nextTick(syncPaneTopHeight);
+  if(globalPageOpen()){ state.list = []; return; }
+  const cid = DATA.activeId;
+  const current = activeAreaFrame(cid);
+  state.list = areaFrames(cid).map(f => {
+    const id = areaFrameId(f);
+    return {id, l: f.l, on: !!current && id === areaFrameId(current),
+      n: f.n != null && f.n !== '' ? String(f.n) : '', p: f.p != null ? String(f.p) : ''};
+  });
+  if(current) applyFrames(cid, current.tab);
+}
+
+function toggleRail(){
+  const rail = document.getElementById('rail');
+  const collapsed = rail.classList.toggle('collapsed');
+  document.getElementById('ico-collapse').textContent = collapsed ? '›' : '‹';
+  DATA.ui.railCollapsed = collapsed;
+  scheduleSave();
+}
+/* ---------- global pages ----------
+   Backup & import and How this works are destinations, not trays laid over the
+   character. Each replaces the pane's contents while it is open.
+
+   They used to render above #pages, which put them underneath the pinned
+   character line: that line is sticky, opaque and z-index 15, so it painted
+   over the panel and the backup buttons could barely be seen. Swapping what
+   the pane shows removes the overlap instead of fighting it. */
+function panelOpen(id){
+  const el = document.getElementById(id);
+  return !!el && el.style.display !== 'none';
+}
+function showGlobalPage(id){
+  ['tools-panel','instructions-panel'].forEach(k=>{
+    const el = document.getElementById(k);
+    if(el) el.style.display = (k === id) ? '' : 'none';
+  });
+  const pages = document.getElementById('pages');
+  if(pages) pages.style.display = id ? 'none' : '';
+
+  const ico = document.getElementById('ico-tools');
+  if(ico) ico.classList.toggle('active', id === 'tools-panel');
+  const help = document.getElementById('instructions-toggle-btn');
+  if(help) help.classList.toggle('active', id === 'instructions-panel');
+
+  renderRail();
+  renderFrameRow();
+  window.scrollTo(0,0);
+}
+function globalPageOpen(){
+  return panelOpen('tools-panel') ? 'tools-panel'
+       : panelOpen('instructions-panel') ? 'instructions-panel' : null;
+}
+function toolsOpen(){ return panelOpen('tools-panel'); }
+function toggleTools(){ showGlobalPage(toolsOpen() ? null : 'tools-panel'); }
+/* The import panel lives inside the backup page, so that page has to be the
+   one on screen or the import looks broken. */
+function openTools(){ showGlobalPage('tools-panel'); }
+
+/* ---------- rail footer ----------
+   Three countdowns in the space of one. The slot shows one at a time and
+   changes every 5 seconds; all of them keep running while hidden, because
+   only the display rotates. The count comes from the DOM, so adding a fourth
+   is one block of markup and no change here.
+
+   One format for all three. Days appear only when there is at least one, so a
+   daily reset reads 6:41:12 and an expansion reads 118d 20:01:36. */
+function fmtCountdown(ms){
+  const t = Math.max(0, Math.floor(ms / 1000));
+  const pad = n => String(n).padStart(2,'0');
+  const d = Math.floor(t / 86400), h = Math.floor(t % 86400 / 3600);
+  const rest = pad(Math.floor(t % 3600 / 60)) + ':' + pad(t % 60);
+  return d ? `${d}d ${pad(h)}:${rest}` : `${h}:${rest}`;
+}
+
+/* 8.0 Evercold. The date is confirmed: public release 23 February 2027
+   (Tokyo Fan Fest keynote, 31 October 2026). Early access (19 February) is
+   not the target. The time is ours: SE never publishes one for the public
+   release. Early access for SB/ShB/EW/DT opened at 09:00 UTC; players report
+   EW and DT opened to the public at daily reset, 15:00 UTC. 12:00 UTC is the
+   midpoint, so the strip says the time is estimated. Keep in step with the
+   comment above RESET_SCHEDULES and PATCH_RELEASES in ffxiv-latest-news. */
+const EVERCOLD_UTC = Date.UTC(2027, 1, 23, 12, 0, 0);
+/* Drawn by Vue, like the Ocean Fishing bar. It keeps its own one-second clock,
+   so nothing outside needs to call it. FootSlot draws it in the Evercold slide. */
+const ExpacBar = {
+  setup(){
+    const now = Vue.ref(Date.now());
+    let timer;
+    Vue.onMounted(() => { timer = setInterval(() => { now.value = Date.now(); }, 1000); });
+    Vue.onUnmounted(() => clearInterval(timer));
+    const ms = Vue.computed(() => EVERCOLD_UTC - now.value);
+    return {ms, fmtCountdown};
+  },
+  template: `
+    <div class="expac-bar" id="expac-bar" :class="{released: ms <= 0}"
+         title="Public release 23 February 2027 (confirmed). Square Enix gives no time, so 12:00 UTC is an estimate.">
+      <span class="ex-label">Evercold &middot; <em>time estimated</em></span>
+      <span class="ex-time">{{ ms <= 0 ? 'live' : fmtCountdown(ms) }}</span>
+      <span class="ex-when">{{ ms <= 0 ? '· released' : '· 23 Feb 2027, about 12:00 UTC' }}</span>
+    </div>`
+};
+
+/* Only a routine you have ticked is waiting on a reset. An unticked one needs
+   no clock, because you can do it now. So this scans the ticked routines of
+   the active character, takes the soonest reset among them, and names it —
+   a bare countdown does not say what is about to happen.
+
+   Drawn by Vue. DATA is not reactive, so the bar reads it again whenever
+   resetTick moves: once a second, and at once when updateResetBar() is called
+   after a tick or a character switch. A counter, not a timestamp: two calls in
+   the same millisecond would set the same value and Vue would skip the second. */
+const resetTick = Vue.ref(0);
+function updateResetBar(){ resetTick.value++; }
+const ResetBar = {
+  setup(){
+    let timer;
+    Vue.onMounted(() => { timer = setInterval(updateResetBar, 1000); });
+    Vue.onUnmounted(() => clearInterval(timer));
+    const st = Vue.computed(() => {
+      resetTick.value;
+      const now = new Date();
+      const c = DATA && getChar(DATA.activeId);
+      const visible = c ? (c.routines||[]).filter(r =>
+        (c.showGated || !isLocked(r, c)) && (c.showHidden || !r.hidden) && isRoutineDone(r, now)) : [];
+
+      let soonest = null;
+      visible.forEach(r=>{
+        const at = nextResetInstant(schedById(r.schedId), now, r.lastDone);
+        if(soonest === null || at < soonest) soonest = at;
+      });
+      if(soonest === null) return null;
+
+      const due = visible.filter(r =>
+        nextResetInstant(schedById(r.schedId), now, r.lastDone) === soonest);
+      return {
+        name: String(schedById(due[0].schedId).label).split(' — ')[0],
+        time: fmtCountdown(soonest - now.getTime()),
+        what: due.length === 1 ? '· ' + due[0].label : '· ' + due.length + ' routines return',
+        title: 'Returns at ' + new Date(soonest).toUTCString()
+      };
+    });
+    return {st};
+  },
+  template: `
+    <div v-if="st" class="reset-bar" id="reset-bar" :title="st.title">
+      <span class="rs-label">Next reset · <em>{{ st.name }}</em></span>
+      <span class="rs-time">{{ st.time }}</span>
+      <span class="rs-what">{{ st.what }}</span>
+    </div>
+    <div v-else class="reset-bar idle" id="reset-bar"
+         title="A countdown appears when you tick a routine. Until then there is nothing to wait for.">
+      <span class="rs-label">Next reset</span>
+      <span class="rs-time">—</span>
+      <span class="rs-what">· nothing is waiting on a reset</span>
+    </div>`
+};
+
+/* The rail footer: one Vue app for the three fixed panels, one slide per running
+   event, the dots and the rotation. It shows one panel at a time and moves on
+   every 5 seconds; every panel keeps counting while hidden.
+
+   Running events only. Announced events stay in Today &rarr; Events, so the
+   rotator is not crowded by a week of upcoming stream slots. The event list is
+   read again every second, so an event that starts while the page is open
+   (Keybound Brawler, 28 Oct 2026 08:00 UTC) gets its slide without a reload.
+   When the list changes, the panel on screen stays where it is if it still
+   exists. */
+const FOOT_PERIOD_MS = 5000;
+const FOOT_FIXED = ['Next reset', 'Ocean Fishing', 'Evercold'];
+const FootSlot = {
+  components: {ResetBar, OceanBar, ExpacBar},
+  setup(){
+    const now = Vue.ref(Date.now());
+    const index = Vue.ref(0);
+    let held = false, clock, rotor;
+    const events = Vue.computed(() => { now.value; return runningEvents(); });
+    const names = Vue.computed(() => FOOT_FIXED.concat(events.value.map(e => e.name)));
+
+    let prev = names.value;
+    Vue.watch(() => names.value.join('\n'), () => {
+      const name = prev[index.value];
+      prev = names.value;
+      const k = prev.indexOf(name);
+      index.value = k >= 0 ? k : 0;
+    });
+
+    const restart = () => {
+      clearInterval(rotor);
+      rotor = setInterval(() => { if(!held) index.value = (index.value + 1) % names.value.length; }, FOOT_PERIOD_MS);
+    };
+    Vue.onMounted(() => { clock = setInterval(() => { now.value = Date.now(); }, 1000); restart(); });
+    Vue.onUnmounted(() => { clearInterval(clock); clearInterval(rotor); });
+
+    const label = e => e.broadcast && e.to !== null
+      ? `Live now · until ${fmtEventTime(e.to)} UTC`
+      : `Event · ${e.to === null ? (e.note || 'no end date') : `ends ${e.estimated ? 'about ' : ''}${fmtEventDay(e.to)}`}`;
+    const left = e => e.to === null ? '—' : fmtCountdown(e.to - now.value);
+    return {
+      index, names, events, label, left, soundOn, toggleResetSound,
+      pick: k => { index.value = k; restart(); },
+      // The rotation stops while the pointer is over the slot, so a countdown
+      // being read does not move.
+      hold: v => { held = v; }
+    };
+  },
+  template: `
+    <div class="foot-slot" id="foot-slot" @mouseenter="hold(true)" @mouseleave="hold(false)">
+      <div class="foot-item" :class="{on: index === 0}" data-name="Next reset"><reset-bar></reset-bar></div>
+      <div class="foot-item" :class="{on: index === 1}" data-name="Ocean Fishing">
+        <div class="oc-wrap">
+          <ocean-bar></ocean-bar>
+          <button class="oc-mute" id="oc-mute-btn" :class="{muted: !soundOn}" @click="toggleResetSound()"
+                  :title="soundOn ? 'Reset sounds on — click to mute' : 'Reset sounds muted — click to unmute'">{{ soundOn ? '🔔' : '🔕' }}</button>
+        </div>
+      </div>
+      <div class="foot-item" :class="{on: index === 2}" data-name="Evercold"><expac-bar></expac-bar></div>
+      <div v-for="(e, k) in events" :key="e.name" class="foot-item ev-slide" :class="{on: index === k + 3}" :data-name="e.name">
+        <div class="expac-bar">
+          <span class="ex-label">{{ label(e) }}</span>
+          <span class="ex-time">{{ left(e) }}</span>
+          <span class="ex-when">· {{ e.name }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="foot-dots" id="foot-dots">
+      <button v-for="(n, k) in names" :key="n" :title="n" :class="{on: index === k}" @click="pick(k)"></button>
+    </div>`
+};
+function initFootSlot(){
+  if(document.getElementById('foot-app')) Vue.createApp(FootSlot).mount('#foot-app');
+}
+
+/* A page left open for days never sees a new events-feed.js or a new Ledger
+   build, which only arrive with a load. So after 24 hours it reloads, but only
+   while the tab is hidden, so nobody watches it happen or loses what they are
+   typing, and never with the import dialog open. It saves first. */
+const PAGE_LOADED_AT = Date.now();
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+function reloadIfStaleAndHidden(){
+  if(!document.hidden || Date.now() - PAGE_LOADED_AT < STALE_AFTER_MS) return;
+  const dlg = document.getElementById('tm-import-panel');
+  if(dlg && dlg.open) return;
+  clearTimeout(saveTimer);
+  save();
+  location.reload();
+}
+document.addEventListener('visibilitychange', reloadIfStaleAndHidden);
+setInterval(reloadIfStaleAndHidden, 60 * 1000);
+
+/* Every tab holds its own copy of DATA and save() writes the whole of it, so a
+   second Ledger tab left open used to put its older copy back over anything the
+   first one saved — a Time Memoria import included, on 24/10/2026. The storage
+   event fires only in the OTHER tabs, so each of them drops its pending save and
+   reloads from what was just written. A tab with the import dialog open waits
+   for the dialog to close, so a paste in progress is not thrown away. */
+let otherTabSaved = false;
+window.addEventListener('storage', e => {
+  if(e.key !== 'ledger-data' || e.storageArea !== localStorage) return;
+  clearTimeout(saveTimer);
+  const dlg = document.getElementById('tm-import-panel');
+  if(dlg && dlg.open){ otherTabSaved = true; return; }
+  location.reload();
+});
+
+/* ---------- theme ---------- */
+/* Every colour in the stylesheet resolves through a custom property, so a theme
+   is a variable swap on the root element rather than a second set of rules.
+   Poetic is the site's own look; Midnight and Daylight follow the plugin's
+   Classic and Native windows. */
+const THEMES = ['poetic','midnight','daylight'];
+function setTheme(name){
+  DATA.ui.theme = name;
+  applyTheme();
+  scheduleSave();
+}
+function applyTheme(){
+  const theme = DATA.ui.theme || 'poetic';
+  // The default palette lives in :root itself, so it is the absence of the
+  // attribute rather than a value of its own.
+  if(theme === 'poetic') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  document.querySelectorAll('.theme-switch button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.theme === theme);
+  });
+  const sel = document.getElementById('theme-sel');
+  if(sel) sel.value = theme;
+}
+
+function applyTab(cid, tab){
+  const page = document.getElementById('page-'+cid);
+  if(!page) return;
+  page.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active', p.dataset.tab===tab));
+  page.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  applyFrames(cid, tab);
+}
+
+/* ---------- per-character render/update ---------- */
+/* The character dashboard, drawn by Vue (boxState). renderCharDash bumps state.tick;
+   charDashMetrics works the figures out from the character each time. */
+const CharDash = {
+  props: ['state'],
+  setup(props){
+    const metrics = Vue.computed(() => {
+      props.state.tick;
+      const c = getChar(props.state.cid);
+      return c ? charDashMetrics(c) : [];
+    });
+    return {metrics};
+  },
+  template: `
+    <div v-for="m in metrics" :key="m.label" class="metric" :class="{done: m.done}"><div class="label">{{ m.label }}</div><div class="value">{{ m.value }}<small v-if="m.of"> / {{ m.of }}</small></div><div class="bar-track"><div class="bar-fill" :style="{width: m.w + '%'}"></div></div></div>`
+};
+function renderCharDash(cid){
+  const state = boxState(cid+'-dash', CharDash);
+  if(state) Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+}
+function charDashMetrics(c){
+  const dutyPct = pct(c.duty,1000), commPct = pct(c.comm,1500);
+  const rolesGot = [c.roleTank,c.roleHealer,c.roleDps].filter(Boolean).length;
+  const overallPct = ((Math.min(c.duty,1000)/1000)+(Math.min(c.comm,1500)/1500)+(c.roleTank?1:0)+(c.roleHealer?1:0)+(c.roleDps?1:0))/5*100;
+  const combatTotal = Object.values(c.combat).reduce((a,b)=>a+b,0);
+  const craftTotal = Object.values(c.craft).reduce((a,b)=>a+b,0);
+  const gatherTotal = Object.values(c.gather).reduce((a,b)=>a+b,0);
+  const questPct = pct(c.quests.overall, c.questTotals.overall);
+  // Built the same way as the Battle figure, over this track's four parts:
+  // each counter capped at its target, plus one job at 100 on each side.
+  const craftCap = Math.max(0, ...Object.values(c.craft)) >= 100 ? 1 : 0;
+  const gatherCap = Math.max(0, ...Object.values(c.gather)) >= 100 ? 1 : 0;
+  const tradePct = ((Math.min(c.tradeCollected,300)/300) + (Math.min(c.tradeMade,100)/100)
+                   + craftCap + gatherCap) / 4 * 100;
+  return [
+    {label: 'Duty completions', value: fmt(c.duty), of: '1,000', w: Math.min(dutyPct,100), done: c.duty>=1000},
+    {label: 'Commendations', value: fmt(c.comm), of: '1,500', w: Math.min(commPct,100), done: c.comm>=1500},
+    {label: 'Battle mentor role quests', value: rolesGot, of: "3 req'd", w: rolesGot/3*100, done: rolesGot>=3},
+    {label: 'Overall to Battle Mentor', value: overallPct.toFixed(1)+'%', w: overallPct},
+    {label: 'Overall to Trade Mentor', value: tradePct.toFixed(1)+'%', w: tradePct},
+    {label: 'Quest completion', value: questPct.toFixed(2)+'%', w: questPct},
+    {label: 'Combat levels', value: fmtLvl(combatTotal), of: '2,230', w: pct(combatTotal,2230)},
+    {label: 'Crafting levels', value: fmtLvl(craftTotal), of: '800', w: pct(craftTotal,800)},
+    {label: 'Gathering levels', value: fmtLvl(gatherTotal), of: '300', w: pct(gatherTotal,300)}
+  ];
+}
+
+/* The Battle Mentor role quests and the duty count's "read …" note, drawn by Vue
+   (boxState). onMainInput calls renderRoles on every keystroke in the section, which
+   only bumps state.tick. The checkboxes keep their ids for collectCharInputs. */
+const RoleChecks = {
+  props: ['state'],
+  setup(props){
+    const view = Vue.computed(() => {
+      props.state.tick;
+      const c = getChar(props.state.cid);
+      if(!c) return null;
+      return {
+        tankReady: COMBAT_JOBS.filter(([n,r])=>r==="Tank").some(([n])=>c.combat[n]>=100),
+        rows: [['tank', 'Tank role quest — No Sleep Till Tuliyollal', c.roleTank],
+               ['healer', 'Healer role quest — An Antidote for Anarchy', c.roleHealer],
+               ['dps', 'One DPS role quest (any of the three)', c.roleDps]].map(([k, label, on]) => ({k, label, on: !!on}))
+      };
+    });
+    return {view, changed: () => onMainInput(props.state.cid)};
+  },
+  template: `
+    <template v-if="view">
+      <div v-for="r in view.rows" :key="r.k" class="check-row"><label><input type="checkbox" :id="state.cid + '-role-' + r.k" :checked="r.on" @change="changed()"> {{ r.label }}<template v-if="r.k === 'tank'"> <span class="qname">{{ view.tankReady ? '' : '(needs a tank at 100)' }}</span></template></label><span v-if="r.on" class="stamp">done</span><span v-else class="stamp pending">pending</span></div>
+    </template>`
+};
+// Duties come from an achievement the same way the collectable counts do, so the
+// figure is only as current as the last time that window was open. Commendations
+// are read live and need no such note.
+const DutyAsOf = {
+  props: ['state'],
+  setup(props){
+    // A new string each time: a computed that returns the same character object
+    // counts as unchanged, and the note would not redraw.
+    const note = Vue.computed(() => {
+      props.state.tick;
+      const c = getChar(props.state.cid);
+      return c && c.dutyAsOf ? `read ${fmtTmTimestamp(c.dutyAsOf)}${c.dutyExact === false ? ' · at least' : ''}` : '';
+    });
+    return {note};
+  },
+  template: `<span v-if="note" class="asof">{{ note }}</span>`
+};
+function renderRoles(cid){
+  [[cid+'-roles', RoleChecks], [cid+'-duty-asof', DutyAsOf]].forEach(([id, comp]) => {
+    const state = boxState(id, comp);
+    if(state) Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+  });
+}
+
+// Typing over an imported count makes it yours: the reading age and floor/exact flag
+// describe a number that is no longer on screen.
+function setReadCount(c, key, value){
+  if(c[key] === value) return;
+  c[key] = value;
+  c[key+'AsOf'] = null;
+  c[key+'Exact'] = true;
+}
+
+// Trade Mentor progress, as four equally weighted parts averaged into one figure.
+//
+// Each part is capped at 1: 173 synthesized of the 100 required is finished, not 173%
+// of the way there, and without the cap one overshooting requirement would mask three
+// untouched ones. The two job parts are a level out of 100 rather than a count.
+//
+// A count read from the plugin can be a floor (see tradeCollectedExact), which is why
+// this reports whether the figure it used was exact — "56.27%" off a floor is a
+// lower bound on progress, and the UI says so rather than implying precision.
+const TRADE_MENTOR_TARGETS = { collected: 300, made: 100 };
+function tradeMentorProgress(c){
+  const highest = (group, names) => names.reduce((max,n)=>Math.max(max, c[group][n]||0), 0);
+  const craftJob = highest('craft', CRAFT_JOBS);
+  const gatherJob = highest('gather', GATHER_JOBS);
+  const parts = [
+    { key:'collected', label:'Collectables gathered or caught', value: Math.min(1, (c.tradeCollected||0) / TRADE_MENTOR_TARGETS.collected) },
+    { key:'made',      label:'Collectables synthesized',        value: Math.min(1, (c.tradeMade||0) / TRADE_MENTOR_TARGETS.made) },
+    { key:'craft',     label:'Highest crafting job',            value: Math.min(1, craftJob / 100) },
+    { key:'gather',    label:'Highest gathering job',           value: Math.min(1, gatherJob / 100) }
+  ];
+  return {
+    parts,
+    craftJob, gatherJob,
+    overall: parts.reduce((sum,p)=>sum+p.value, 0) / parts.length,
+    exact: c.tradeCollectedExact !== false && c.tradeMadeExact !== false
+  };
+}
+
+function tradeMentorView(c){
+  const p = tradeMentorProgress(c);
+  // The job parts name whichever job is furthest along, since "64% of a crafting job"
+  // is meaningless without knowing which one the tracker settled on.
+  const best = (group, names) => names.reduce((a,b)=>(c[group][b]||0) > (c[group][a]||0) ? b : a, names[0]);
+  // A count read from the plugin says when it was read. It only refreshes while the
+  // Achievements window is open, so an undated figure and a fortnight-old one would
+  // otherwise look identical.
+  const age = at => at ? `read ${fmtTmTimestamp(at)}` : '';
+  const count = (n, exact) => `${(n||0).toLocaleString()}${exact === false ? '+' : ''}`;
+  const detail = {
+    collected: {qname: `${count(c.tradeCollected, c.tradeCollectedExact)} / 300`, asof: age(c.tradeCollectedAsOf)},
+    made: {qname: `${count(c.tradeMade, c.tradeMadeExact)} / 100`, asof: age(c.tradeMadeAsOf)},
+    craft: {qname: `${best('craft', CRAFT_JOBS)} ${fmtLvl(p.craftJob)} / 100`, asof: ''},
+    gather: {qname: `${best('gather', GATHER_JOBS)} ${fmtLvl(p.gatherJob)} / 100`, asof: ''}
+  };
+  return {
+    rows: p.parts.map(part => ({key: part.key, label: part.label, ...detail[part.key],
+      pct: (part.value*100).toFixed(2) + '%', done: part.value >= 1})),
+    exact: p.exact,
+    overall: (p.overall*100).toFixed(3) + '%'
+  };
+}
+const TradeMentor = {
+  props: ['state'],
+  setup(props){
+    const view = Vue.computed(() => { props.state.tick; const c = getChar(props.state.cid); return c ? tradeMentorView(c) : null; });
+    return {view};
+  },
+  template: `
+    <template v-if="view">
+      <div v-for="r in view.rows" :key="r.key" class="check-row">
+        <span>{{ r.label }} <span class="qname">{{ r.qname }}</span><template v-if="r.asof"> <span class="asof">{{ r.asof }}</span></template></span>
+        <span class="trade-pct">{{ r.pct }}</span>
+        <span :class="r.done ? 'stamp' : 'stamp pending'">{{ r.done ? 'done' : 'pending' }}</span>
+      </div>
+      <div class="check-row trade-overall">
+        <span>Trade mentor progress<template v-if="!view.exact"> <span class="qname">(at least — a count is a floor)</span></template></span>
+        <span class="trade-pct">{{ view.overall }}</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" :style="{width: view.overall}"></div></div>
+    </template>`
+};
+const AtCap = {
+  props: ['state'],
+  template: `<span v-if="state.done" class="at-cap">done</span>`
+};
+function updateTradeMentorChecks(cid){
+  const c = getChar(cid);
+  const state = boxState(cid+'-trade-jobs', TradeMentor);
+  if(state) Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+  const collected = boxState(cid+'-trade-collected-done', AtCap);
+  if(collected) collected.done = c.tradeCollected >= 300;
+  const made = boxState(cid+'-trade-made-done', AtCap);
+  if(made) made.done = c.tradeMade >= 100;
+}
+
+function updatePlaytimeTotal(cid){
+  const c = getChar(cid);
+  document.getElementById(cid+'-playtime-total').textContent = `= ${c.playtime.days*24 + c.playtime.hours}h total`;
+  const asofEl = document.getElementById(cid+'-playtime-asof');
+  if(asofEl) asofEl.textContent = c.playtimeAsOf ? `· as of ${fmtTmTimestamp(c.playtimeAsOf)}` : '';
+}
+// Playtime only advances when the player runs /playtime in-game, so its own freshness
+// (playtimeAsOf) can lag behind the rest of a Time Memoria import — tracked separately
+// from tmSyncedAt, which stamps the whole import.
+function renderTmSyncNote(cid){
+  const c = getChar(cid);
+  const el = document.getElementById(cid+'-tm-sync-note');
+  if(!el) return;
+  el.textContent = c.tmSyncedAt ? `Synced from Tales of Milestones v${c.tmSyncedVersion||'?'} · ${fmtTmTimestamp(c.tmSyncedAt)}` : '';
+}
+function fmtTmTimestamp(iso){
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return iso;
+  return d.toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+}
+
+function updateOverallCheck(cid){
+  const el = document.getElementById(cid+'-overall-check');
+  if(!el) return;
+  const c = getChar(cid);
+  let sumDone=0, sumTotal=0;
+  SUB_CATS.forEach(([key])=>{ sumDone += c.quests[key]||0; sumTotal += c.questTotals[key]||0; });
+  const doneOk = sumDone === (c.quests.overall||0), totalOk = sumTotal === (c.questTotals.overall||0);
+  if(doneOk && totalOk){
+    el.className = 'check-note ok';
+    el.textContent = `✓ sub-categories sum to ${fmt(sumDone)} / ${fmt(sumTotal)} — matches Overall`;
+  }else{
+    const parts=[];
+    if(!doneOk) parts.push(`done ${fmt(sumDone)} vs Overall ${fmt(c.quests.overall||0)}`);
+    if(!totalOk) parts.push(`total ${fmt(sumTotal)} vs Overall ${fmt(c.questTotals.overall||0)}`);
+    el.className = 'check-note warn';
+    el.textContent = `⚠ sub-categories disagree with Overall — ${parts.join('; ')}`;
+  }
+}
+
+let editingTotals = {};
+function toggleEditTotals(cid){
+  editingTotals[cid] = !editingTotals[cid];
+  const btn = document.getElementById(cid+'-totals-edit-btn');
+  btn.textContent = editingTotals[cid] ? 'Done editing' : 'Edit totals';
+  btn.classList.toggle('active', editingTotals[cid]);
+  renderQuestsTable(cid);
+}
+function onTotalInput(cid){
+  collectAllInputs();
+  updateQuestPercents(cid);
+  updateOverallCheck(cid);
+  updateMsqCheckNote(cid);
+  renderCharDash(cid);
+  scheduleSave();
+}
+/* The quest categories table, drawn by Vue (boxState), the same way as the custom
+   trackers. renderQuestsTable bumps state.tick: a new snapshot, and every row made
+   again. Typing bumps state.typed (bumpQuests): only the percentages, the MSQ
+   switch and the check note redraw. Inputs are v-once and keep their ids for
+   collectCharInputs; each row is its own component so v-once is per row.
+
+   The total input uses v-init-value instead: Vue 3.5's compiler crashes on a
+   <template v-if> whose only child is v-once. The directive sets the value once,
+   when the input is made, and Vue never binds it, so typing is never overwritten. */
+const vInitValue = { mounted(el, binding){ el.value = binding.value; } };
+const QuestRow = {
+  props: {cid: String, row: Object, editing: Boolean, p: Number, msqToggle: Boolean, msqOpen: Boolean},
+  emits: ['toggleMsq'],
+  directives: {initValue: vInitValue},
+  setup: () => ({onMainInput, onTotalInput}),
+  template: `
+    <div>{{ row.label }}<template v-if="msqToggle"> <button class="jq-toggle neutral" :id="cid + '-msqbtn'" @click="$emit('toggleMsq')">{{ msqOpen ? 'hide' : 'by expansion' }}</button></template></div>
+    <div><input v-once type="text" :id="cid + '-quest-' + row.key" :value="row.v" style="text-align:right" @input="onMainInput(cid)"></div>
+    <div style="text-align:right" class="cap"><template v-if="editing"><input type="text" class="total-input" :id="cid + '-total-' + row.key" v-init-value="row.total" @input="onTotalInput(cid)"></template><template v-else>{{ row.total.toLocaleString() }}</template></div>
+    <div style="text-align:right;font-family:var(--font-mono);color:var(--text-dim)" :id="cid + '-qpct-' + row.key">{{ p.toFixed(1) }}%</div>`
+};
+// Main Scenario gets a per-expansion breakdown option — the no-plugin fallback. Same
+// number-entry pattern as every other category, not a quest-by-quest checklist; the
+// user types each expansion's own done/total (from the wiki or their own count),
+// and a mini consistency check confirms it against this row's own numbers, same
+// relationship as Overall vs. the seven categories.
+const MsqRow = {
+  props: {cid: String, row: Object, p: Number},
+  setup: () => ({onMsqExpInput}),
+  template: `
+    <div class="jq-item">
+      <span class="jq-name" style="flex:1">{{ row.label }}</span>
+      <input v-once type="text" :id="cid + '-msqexp-' + row.k" :value="row.v" style="width:56px;text-align:right" @input="onMsqExpInput(cid)">
+      <span class="jq-level" style="width:12px;text-align:center;flex:0 0 auto">/</span>
+      <input v-once type="text" :id="cid + '-msqexptotal-' + row.k" :value="row.t" style="width:56px;text-align:right" @input="onMsqExpInput(cid)">
+      <span class="jq-level" style="width:50px;text-align:right;font-family:var(--font-mono)" :id="cid + '-msqexppct-' + row.k">{{ p.toFixed(1) }}%</span>
+    </div>`
+};
+// Made when the panel opens, so its inputs start from the saved numbers.
+const MsqPanel = {
+  components: {MsqRow},
+  props: {cid: String, typed: Number},
+  setup(props){
+    const c = getChar(props.cid);
+    const rows = MSQ_EXPANSIONS.map(([k, label]) => ({k, label, v: c.msqBreakdown[k]||0, t: c.msqBreakdownTotals[k]}));
+    const p = k => { props.typed; const ch = getChar(props.cid); return pct(ch.msqBreakdown[k]||0, ch.msqBreakdownTotals[k]); };
+    const check = Vue.computed(() => { props.typed; return msqCheck(props.cid); });
+    return {rows, p, check};
+  },
+  template: `
+    <div class="jq-panel"><msq-row v-for="r in rows" :key="r.k" :cid="cid" :row="r" :p="p(r.k)"></msq-row><div class="check-note" :class="check.cls" :id="cid + '-msqcheck'" style="margin-top:8px">{{ check.text }}</div></div>`
+};
+const QuestsTable = {
+  components: {QuestRow, MsqPanel},
+  props: ['state'],
+  setup(props){
+    const snap = Vue.computed(() => {
+      props.state.tick;
+      const c = getChar(props.state.cid);
+      if(!c) return null;
+      return {editing: !!editingTotals[props.state.cid], noPlugin: !!c.noPlugin,
+              rows: QUEST_CATS.map(([key, label]) => ({key, label, v: c.quests[key]||0, total: c.questTotals[key]}))};
+    });
+    const live = () => { props.state.typed; return getChar(props.state.cid); };
+    const p = key => { const c = live(); return pct(c.quests[key]||0, c.questTotals[key]); };
+    const msqOpen = () => !!live().msqBreakdownOpen;
+    return {snap, p, msqOpen, toggleMsq: () => toggleMsqBreakdown(props.state.cid)};
+  },
+  template: `
+    <template v-if="snap">
+      <div class="h">Category</div><div class="h" style="text-align:right">Done</div><div class="h" style="text-align:right">Total</div><div class="h" style="text-align:right">%</div>
+      <template v-for="r in snap.rows" :key="r.key + ':' + state.tick">
+        <quest-row :cid="state.cid" :row="r" :editing="snap.editing" :p="p(r.key)" :msq-toggle="r.key === 'msq' && snap.noPlugin" :msq-open="msqOpen()" @toggle-msq="toggleMsq"></quest-row>
+        <div v-if="r.key === 'msq' && snap.noPlugin" :id="state.cid + '-msqrow'" style="grid-column:1/-1" :style="msqOpen() ? {} : {display: 'none'}"><msq-panel v-if="msqOpen()" :cid="state.cid" :typed="state.typed || 0"></msq-panel></div>
+      </template>
+    </template>`
+};
+function renderQuestsTable(cid){
+  const state = boxState(cid+'-quests', QuestsTable);
+  if(state) Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+}
+/* Redraws the percentages, the MSQ switch and the check notes from the live data. */
+function bumpQuests(cid){
+  const state = boxState(cid+'-quests', QuestsTable);
+  if(state) state.typed = (state.typed || 0) + 1;
+}
+/* The quest-categories hint and its switch, drawn by Vue (see boxState). */
+const PluginMode = {
+  props: ['state'],
+  setup: () => ({toggleNoPlugin}),
+  template: `<span class="hint">{{ state.noPlugin ? 'manual entry — no plugin' : 'via Tales of Milestones' }}</span><button class="link-btn" @click="toggleNoPlugin(state.cid)">{{ state.noPlugin ? 'I use Tales of Milestones' : "I don't use the plugin" }}</button>`
+};
+function renderPluginMode(cid){
+  const state = boxState(`${cid}-pluginmode`, PluginMode);
+  if(state) Object.assign(state, {cid, noPlugin: !!getChar(cid).noPlugin});
+}
+function toggleNoPlugin(cid){
+  collectAllInputs();
+  const c = getChar(cid);
+  c.noPlugin = !c.noPlugin;
+  if(!c.noPlugin) c.msqBreakdownOpen = false;
+  renderPluginMode(cid);
+  renderQuestsTable(cid);
+  scheduleSave();
+}
+
+/* ---------- MSQ per-expansion breakdown (no-plugin fallback) ---------- */
+function msqCheck(cid){
+  const c = getChar(cid);
+  let sumDone=0, sumTotal=0;
+  MSQ_EXPANSIONS.forEach(([key])=>{ sumDone += c.msqBreakdown[key]||0; sumTotal += c.msqBreakdownTotals[key]||0; });
+  const doneOk = sumDone === (c.quests.msq||0), totalOk = sumTotal === (c.questTotals.msq||0);
+  if(doneOk && totalOk){
+    return { cls:'ok', text:`✓ expansions sum to ${fmt(sumDone)} / ${fmt(sumTotal)} — matches Main scenario` };
+  }
+  const parts=[];
+  if(!doneOk) parts.push(`done ${fmt(sumDone)} vs Main scenario ${fmt(c.quests.msq||0)}`);
+  if(!totalOk) parts.push(`total ${fmt(sumTotal)} vs Main scenario ${fmt(c.questTotals.msq||0)}`);
+  return { cls:'warn', text:`⚠ expansions disagree — ${parts.join('; ')}` };
+}
+function toggleMsqBreakdown(cid){
+  collectAllInputs();
+  const c = getChar(cid);
+  c.msqBreakdownOpen = !c.msqBreakdownOpen;
+  bumpQuests(cid);
+  scheduleSave();
+}
+function onMsqExpInput(cid){
+  collectAllInputs();
+  bumpQuests(cid);
+  scheduleSave();
+}
+// Both called on every keystroke by onMainInput and onTotalInput; the table draws both.
+function updateMsqCheckNote(cid){ bumpQuests(cid); }
+function updateQuestPercents(cid){ bumpQuests(cid); }
+
+// Grouped by role rather than one flat list of twenty-three, which is how the
+// game's own job panel reads and how people think about it — "what are my
+// healers on", not "what is job fourteen". Limited jobs keep their own group
+// instead of sitting under Melee and Magical Ranged where the game files them:
+// they cap early and cannot be levelled by the same means, so grouping them
+// with jobs that can would invite the wrong comparison.
+const JOB_ROLE_ORDER = ['Tank','Healer','Melee','Phys R','Mag R','Limited'];
+const JOB_ROLE_LABEL = {
+  'Tank':'Tank', 'Healer':'Healer', 'Melee':'Melee DPS',
+  'Phys R':'Physical Ranged DPS', 'Mag R':'Magical Ranged DPS',
+  'Limited':'Limited · Blue Mage 80, Beastmaster 50'
+};
+// Crafting and Gathering keep their headings either way — they're the two columns of a
+// fixed layout, and dropping one would slide the other across the page. JobBox draws
+// "None levelled yet." in their place when every row is hidden.
+function renderJobTables(cid){
+  ['combat', 'craft', 'gather'].forEach(kind => {
+    const state = boxState(cid+'-'+kind, JobBox);
+    if(state) Object.assign(state, {cid, kind, tick: (state.tick || 0) + 1});
+  });
+  renderJobsNote(cid);
+  renderQuestItems(cid);
+  Vue.nextTick(() => applyFrames(cid, 'jobs'));
+  refreshNav(cid);
+}
+
+/* ---------- hiding jobs at 0 ---------- */
+// Twenty-three combat jobs, eight crafters and three gatherers, of which most characters
+// play a handful. A row at 0 is one that has never been touched, so it goes, and the note
+// under the tab says how many and offers them back.
+//
+// Level, not unlock: the page has no unlock data for jobs, and 0 is the one level that
+// cannot be a real one. A job at 1 stays, however untouched it looks.
+//
+// It applies to a character with no levels at all too, which hides the entire tab. That
+// wants the note below to be unconditional — it is the only way back in, and a section with
+// nothing in it and no way to fill it is a dead end.
+function hidesZeroJobs(c){ return !c.showZeroJobs; }
+function zeroJobCount(c){
+  return COMBAT_JOBS.filter(([n])=>!(c.combat[n] > 0)).length
+       + CRAFT_JOBS.filter(n=>!(c.craft[n] > 0)).length
+       + GATHER_JOBS.filter(n=>!(c.gather[n] > 0)).length;
+}
+/* The show/hide notes (jobs, locked routines, hidden routines) are drawn by Vue.
+   Each render…Note still works out its own text; drawNote hands it to one small app
+   per note element. An empty label draws nothing. When the pages are rebuilt, the
+   element is new: it gets a new app and the old one is unmounted. */
+const ToggleNote = {
+  props: ['state'],
+  template: `<template v-if="state.label"><span>{{ state.label }}</span><button class="link-btn" @click="state.toggle()">{{ state.button }}</button></template>`
+};
+/* One Vue app per element id, given a reactive `state` prop. Returns that state for
+   the caller to fill in, or null when the element is not on the page. */
+const vueBoxes = {};
+function boxState(id, component){
+  const box = document.getElementById(id);
+  if(!box) return null;
+  let n = vueBoxes[id];
+  if(!n || n.box !== box){
+    if(n) n.app.unmount();
+    const state = Vue.reactive({});
+    const app = Vue.createApp(component, {state});
+    app.mount(box);
+    n = vueBoxes[id] = {app, box, state};
+  }
+  return n.state;
+}
+function drawNote(id, label, button, toggle){
+  const state = boxState(id, ToggleNote);
+  if(state) Object.assign(state, {label, button, toggle});
+}
+function renderJobsNote(cid){
+  const c = getChar(cid);
+  const zeros = zeroJobCount(c);
+  // The one case with nothing to say: every job levelled, so nothing was hidden and there
+  // is nothing to offer back.
+  if(!zeros){ drawNote(cid+'-jobsnote', ''); return; }
+  const label = c.showZeroJobs
+    ? `showing ${zeros} ${zeros===1?'job':'jobs'} you haven't levelled`
+    : `${zeros} hidden — not levelled`;
+  drawNote(cid+'-jobsnote', label, c.showZeroJobs?'hide them':'show them', () => toggleShowZeroJobs(cid));
+}
+// Reads the inputs back first: the tables are about to be rebuilt from the data, so a level
+// typed and not yet collected would be rewritten with the old one.
+function toggleShowZeroJobs(cid){
+  collectAllInputs();
+  const c = getChar(cid);
+  c.showZeroJobs = !c.showZeroJobs;
+  renderJobTables(cid);
+  scheduleSave();
+}
+
+/* ---------- allied society reputation ----------
+   Drawn by Vue (boxState). renderSocieties bumps state.tick: a new snapshot, and every
+   row made again, as the old full rebuild did. Typing points redraws nothing. The points
+   input uses v-init-value and keeps its id, so collectCharInputs reads it back; the rank
+   select follows saved data, so it is bound. toggleIntersocietal bumps state.beat, which
+   redraws only the stamp. */
+function societyRowView(c, name){
+  const s = c.societies[name];
+  const [, exp] = ALLIED_SOCIETIES.find(a=>a[0]===name);
+  const info = rankInfo(s.rank);
+  // Trust the plugin's own per-society quota over the generic rank table when we have it —
+  // it knows things the table can't, like Ixal capping at Sworn(7) instead of the usual
+  // rank 8, same as the four core ARR tribes cap at Trusted(4) instead of 8.
+  const hasLiveQuota = c.societiesSynced && typeof s.needed === 'number';
+  const quota = hasLiveQuota ? s.needed : info.quota;
+  // Read-only once Time Memoria has sent the real figures: the plugin reads them from the
+  // game every time, so an editable control would only ever let someone make it wrong.
+  // Everyone else keeps the dropdowns — most of the FC does not run the plugin, and this
+  // page is for them too.
+  return {
+    name, id: socId(name), synced: !!c.societiesSynced, rank: s.rank, points: s.points,
+    rankLabel: `${info.rank}. ${info.name}`,
+    opts: validRanksFor(name).map(rank => { const r = rankInfo(rank); return {rank: r.rank, label: `${r.rank}. ${r.name}`}; }),
+    capped: quota === 0,
+    cappedText: INTERSOCIETAL_QUESTS[exp]
+      ? `capped — needs ${INTERSOCIETAL_QUESTS[exp]}`
+      : `capped — Bloodsworn is the max (no Intersocietal Quests exist for ${exp})`,
+    // Manual entry shows the generic table's quota, the plugin's figures its own.
+    quota: c.societiesSynced ? quota : info.quota
+  };
+}
+// True once every society in the group is sitting at rank 8 — the point-earning cap for all
+// of them regardless of how far their individual ladder runs (Trusted for the four early-cap
+// ARR societies, Sworn for everyone else). That's the real in-game gate on starting the
+// Intersocietal Quests chain.
+function intersocietalReady(c, exp){
+  return ALLIED_SOCIETIES.filter(a=>a[1]===exp).every(([name])=>c.societies[name].rank>=8);
+}
+const SocietyList = {
+  props: ['state'],
+  directives: {initValue: vInitValue},
+  setup(props){
+    const groups = Vue.computed(() => {
+      props.state.tick;
+      const c = getChar(props.state.cid);
+      if(!c) return [];
+      const have = patchValue(c.patch);
+      return [...new Set(ALLIED_SOCIETIES.map(a=>a[1]))]
+        .filter(exp => !(have !== null && SOCIETY_EXP_GATE[exp] > have))
+        .map(exp => ({
+          exp, slug: frameSlug(exp),
+          rows: ALLIED_SOCIETIES.filter(a=>a[1]===exp).map(a => societyRowView(c, a[0])),
+          inter: INTERSOCIETAL_QUESTS[exp] && intersocietalReady(c, exp)
+            ? {id: 'inter-'+socId(exp), quest: INTERSOCIETAL_QUESTS[exp]} : null
+        }));
+    });
+    const done = exp => { props.state.beat; const c = getChar(props.state.cid); return !!(c && c.intersocietalDone[exp]); };
+    return {groups, done, onSocietyRankChange, onSocietyPointsInput, toggleIntersocietal};
+  },
+  // Each expansion is one block rather than loose siblings, so the columns on a
+  // wide screen can never split a heading from the societies under it.
+  template: `
+    <div v-if="!groups.length" class="empty-hint">Set your MSQ progress above to see allied societies as you unlock them.</div>
+    <div v-for="g in groups" :key="g.exp" class="society-exp" :data-frame="g.slug">
+      <div class="subhead">{{ g.exp }}</div>
+      <div class="society-group">
+        <div v-for="r in g.rows" :key="r.name + ':' + state.tick" class="society-item">
+          <span class="society-name">{{ r.name }}</span>
+          <span v-if="r.synced" class="society-rank">{{ r.rankLabel }}</span>
+          <select v-else :id="state.cid + '-soc-rank-' + r.id" :value="r.rank" @change="onSocietyRankChange(state.cid, r.name)">
+            <option v-for="o in r.opts" :key="o.rank" :value="o.rank">{{ o.label }}</option>
+          </select>
+          <span v-if="r.capped" class="society-capped">{{ r.cappedText }}</span>
+          <template v-else-if="r.synced"><span class="society-points">{{ r.points }}</span><span class="society-quota">/ {{ r.quota }}</span></template>
+          <template v-else><input type="text" :id="state.cid + '-soc-points-' + r.id" v-init-value="r.points" style="text-align:right" @input="onSocietyPointsInput(state.cid, r.name)"><span class="society-quota">/ {{ r.quota }}</span></template>
+        </div>
+      </div>
+      <div v-if="g.inter" class="check-row">
+        <label><input type="checkbox" :id="state.cid + '-' + g.inter.id" :checked="done(g.exp)" @change="toggleIntersocietal(state.cid, g.exp)"> {{ g.inter.quest }}</label>
+        <span :class="done(g.exp) ? 'stamp' : 'stamp pending'">{{ done(g.exp) ? 'done' : 'ready' }}</span>
+      </div>
+    </div>`
+};
+// Full render, safe to call on any rank change (a discrete <select> change, not continuous
+// typing) since it rebuilds every row — including toggling the points input vs. the capped
+// note depending on the newly selected rank's quota, and whether the Intersocietal Quests
+// prompt should appear below the group at all.
+function renderSocieties(cid){
+  const state = boxState(cid+'-societies', SocietyList);
+  if(!state) return;
+  Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+  updateSocietyModeUi(cid);
+  Vue.nextTick(() => applyFrames(cid, 'societies'));
+  refreshNav(cid);
+}
+// Hands the section back to manual entry, or back to the plugin's figures. Not a
+// destructive switch either way — the stored values are the same numbers; this only
+// decides who is allowed to write them.
+function toggleSocietiesManual(cid){
+  const c = getChar(cid);
+  if(!c) return;
+
+  collectAllInputs();
+  c.societiesSynced = !c.societiesSynced;
+  renderSocieties(cid);
+  scheduleSave();
+}
+
+// Reflects which mode the section is in, the same way the quest categories header does.
+function updateSocietyModeUi(cid){
+  const c = getChar(cid);
+  if(!c) return;
+
+  const hint = document.getElementById(`${cid}-sochint`);
+  const btn = document.getElementById(`${cid}-socmode-btn`);
+
+  if(hint) hint.textContent = c.societiesSynced
+    ? 'via Tales of Milestones'
+    : 'rank + points reset to 0 on every rank-up';
+
+  if(btn){
+    btn.textContent = c.societiesSynced ? 'Edit manually' : 'Use Tales of Milestones';
+    // Nothing to go back to until an import has actually happened.
+    btn.style.display = (c.societiesSynced || c.tmSyncedAt) ? '' : 'none';
+  }
+}
+
+function toggleIntersocietal(cid, exp){
+  const c = getChar(cid);
+  const id = 'inter-'+socId(exp);
+  const chk = document.getElementById(`${cid}-${id}`);
+  if(!chk) return;
+  c.intersocietalDone[exp] = chk.checked;
+  const state = boxState(cid+'-societies', SocietyList);
+  if(state) state.beat = (state.beat || 0) + 1;
+  scheduleSave();
+}
+function onSocietyRankChange(cid, name){
+  collectAllInputs();
+  renderSocieties(cid);
+  scheduleSave();
+}
+// Points typed in never need anything else on screen to update (quota only depends on
+// rank), so this deliberately never touches the DOM — never rebuild a text input the user
+// is mid-keystroke in.
+function onSocietyPointsInput(cid, name){
+  collectAllInputs();
+  scheduleSave();
+}
+
+/* ---------- elite marks (the Hunt) ---------- */
+// Nothing fills this tab in. The game records no per-mark kill of its own — the Hunt
+// achievements only count how many marks of a rank you have killed, and the same mark
+// killed twice counts twice — so no export, Lodestone page or plugin can reconstruct it.
+// Every tick here is the player saying so.
+const ELITE_MARK_TOTAL = ELITE_MARKS.reduce((n, [, marks]) => n + marks.length, 0);
+const ELITE_RANKS = ['S', 'A'];
+const ELITE_RANK_LABEL = {S:'S rank', A:'A rank'};
+const ELITE_RANK_TOTALS = ELITE_MARKS.reduce((acc, [, marks]) => {
+  marks.forEach(([rank]) => { acc[rank]++; });
+  return acc;
+}, {S:0, A:0});
+
+// Ticks were stored against the display name until MemoriaProbe read the BNpcName ids out
+// of the game's NotoriousMonster sheet. This converts a save written under the old scheme,
+// once, on load.
+const ELITE_MARK_IDS_BY_NAME = ELITE_MARKS.reduce((acc, [, marks]) => {
+  marks.forEach(([, id, name]) => { acc[name.toLowerCase()] = id; });
+  return acc;
+}, {});
+
+// Job quest ticks are stored by title, and a Time Memoria import matches titles exactly.
+// A title listed here was spelled differently from the game's own Quest sheet; a tick saved
+// under the old spelling moves to the new one, once, on load.
+const JOB_QUEST_TITLE_FIXES = {
+  "The Client is King": "The Client Is King",
+};
+
+function migrateJobQuestTitles(c){
+  Object.values(c.jobQuestsDone).forEach(done => {
+    if(!done || typeof done !== 'object') return;
+    Object.entries(JOB_QUEST_TITLE_FIXES).forEach(([from, to]) => {
+      if(!(from in done)) return;
+      done[to] = !!(done[to] || done[from]);
+      delete done[from];
+    });
+  });
+}
+
+function migrateHuntKeys(c){
+  const keys = Object.keys(c.hunts);
+  if(keys.every(key => /^\d+$/.test(key))) return;
+
+  const moved = {};
+  keys.forEach(key => {
+    const id = ELITE_MARK_IDS_BY_NAME[key.toLowerCase()];
+    // A key matching no mark is carried across untouched rather than dropped. It is either
+    // a B rank from before they were removed, or a name the wiki list spelled differently
+    // from this one — and a tick nobody can see is still better than a tick destroyed.
+    moved[id === undefined ? key : id] = true;
+  });
+  c.hunts = moved;
+}
+
+// Every group starts open, so an absent key is the default rather than a state anyone
+// has to write on a fresh character.
+// Keyed by the block's own identity — an achievement name where one exists, expansion
+// and rank where none does. Achievement names are unique across the table, so the two
+// kinds cannot collide. Collapse state left over from the old expansion|rank scheme
+// simply stops matching and the block opens, which is the default anyway.
+function huntGroupCollapsed(c, key){
+  return c.huntsCollapsed[key] === true;
+}
+
+// One block per achievement where an achievement exists, a plain rank block where none
+// does. The header carries the achievement's own name beside the region a reader would
+// recognise, because nothing in the game connects "the Holt" to the Black Shroud — the
+// only people who can make that jump are the ones who already knew.
+// The layout is the same for every character, so it is built once.
+const HUNT_LAYOUT = ELITE_MARKS.map(([exp, marks]) => ({
+  exp, slug: frameSlug(exp),
+  blocks: ELITE_RANKS.flatMap((rank) => {
+    const list = marks.filter((m) => m[0] === rank);
+    if(!list.length) return [];
+    const achievements = ELITE_MARK_GROUPS.filter((g) => g[0] === exp && g[3] === rank);
+    const block = (key, title, region, marks) => ({key, rank, pill: 'rank-pill rank-' + rank.toLowerCase(), title, region,
+      marks: marks.map(([, id, name, zone, trigger]) => ({id, name, zone, trigger: trigger || ''}))});
+    // Shadowbringers onward: no achievement covers these, so there is nothing to group
+    // by and the flat rank list is the honest presentation.
+    if(achievements.length === 0) return [block(exp + '|' + rank, ELITE_RANK_LABEL[rank], '', list)];
+    // Ordered by the achievement's own id list rather than by the table, so the block
+    // reads in the order the game names them.
+    return achievements.map(([, name, region, , ids]) =>
+      block(name, name, region, ids.map((id) => list.find((m) => m[1] === id)).filter(Boolean)));
+  })
+}));
+
+/* Drawn by Vue (boxState). The layout never changes; the ticks, counts and collapsed
+   blocks are read from the character on every redraw. renderHunts bumps state.tick for
+   new data, and a tick or a collapse bumps state.beat. Either one patches the page in
+   place, so a tick halfway down the 127 rows keeps the scroll position. */
+const HuntList = {
+  props: ['state'],
+  setup(props){
+    const char = () => { props.state.tick; props.state.beat; return getChar(props.state.cid); };
+    const done = id => { const c = char(); return !!(c && c.hunts[id]); };
+    const count = b => b.marks.filter(m => done(m.id)).length;
+    const collapsed = key => { const c = char(); return !!c && huntGroupCollapsed(c, key); };
+    return {HUNT_LAYOUT, done, count, collapsed,
+      tick: (id, on) => toggleHunt(props.state.cid, id, on),
+      fold: key => toggleHuntGroup(props.state.cid, key)};
+  },
+  template: `
+    <div v-for="e in HUNT_LAYOUT" :key="e.exp" class="hunt-exp" :data-frame="e.slug"><div class="subhead">{{ e.exp }}</div>
+      <div v-for="b in e.blocks" :key="b.key" :class="collapsed(b.key) ? 'hunt-rankgroup is-collapsed' : 'hunt-rankgroup'">
+        <div class="hunt-rankhead">
+          <span :class="b.pill">{{ b.rank }}</span>
+          <span class="hunt-rankname">{{ b.title }}<span v-if="b.region" class="hunt-rankwhere">{{ b.region }}</span></span>
+          <span class="hunt-rankcount"><b>{{ count(b) }}</b> / {{ b.marks.length }}</span>
+          <button class="sec-toggle" :data-key="b.key" @click="fold(b.key)">{{ collapsed(b.key) ? 'show' : 'hide' }}</button>
+        </div>
+        <div class="hunt-list">
+          <label v-for="m in b.marks" :key="m.id" :class="done(m.id) ? 'hunt-item done' : 'hunt-item'">
+            <input type="checkbox" :data-mark="m.id" :data-rank="b.rank" :checked="done(m.id)" @change="tick(m.id, $event.target.checked)">
+            <span class="hunt-text"><span class="hunt-name">{{ m.name }}</span><span v-if="m.trigger" class="hunt-trigger">{{ m.trigger }}</span></span>
+            <span class="hunt-zone">{{ m.zone }}</span>
+          </label>
+        </div>
+      </div>
+    </div>`
+};
+function bumpHunts(cid){
+  const state = boxState(cid+'-hunts', HuntList);
+  if(state) state.beat = (state.beat || 0) + 1;
+}
+function renderHunts(cid){
+  const state = boxState(cid+'-hunts', HuntList);
+  if(!state) return;
+  Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+  renderHuntDash(cid);
+  Vue.nextTick(() => applyFrames(cid, 'hunts'));
+  refreshNav(cid);
+}
+
+// Split by rank rather than rolled into one figure: an A rank comes back on a 4-6 hour
+// timer and an S rank on a 84-132 hour one, so the two are not the same achievement and a
+// combined total would let the easier half speak for both.
+function huntDashView(c){
+  const tally = {S:0, A:0};
+  ELITE_MARKS.forEach(([, marks]) => marks.forEach(([rank, id]) => { if(c.hunts[id]) tally[rank]++; }));
+  return ELITE_RANKS.map(rank => {
+    const total = ELITE_RANK_TOTALS[rank];
+    const done = tally[rank];
+    return {rank, label: ELITE_RANK_LABEL[rank] + 's', done, total, full: done === total, width: pct(done, total) + '%'};
+  });
+}
+const HuntDash = {
+  props: ['state'],
+  setup(props){
+    const view = Vue.computed(() => { props.state.tick; const c = getChar(props.state.cid); return c ? huntDashView(c) : []; });
+    return {view};
+  },
+  template: `
+    <div v-for="m in view" :key="m.rank" :class="m.full ? 'metric done' : 'metric'">
+      <div class="label">{{ m.label }}</div>
+      <div class="value">{{ m.done }} <small>/ {{ m.total }}</small></div>
+      <div class="bar-track"><div class="bar-fill" :style="{width: m.width}"></div></div>
+    </div>`
+};
+function renderHuntDash(cid){
+  const c = getChar(cid);
+  const state = boxState(cid+'-hunt-dash', HuntDash);
+  if(state) Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+  const tally = huntDashView(c);
+  const slain = tally[0].done + tally[1].done;
+  const left = ELITE_RANK_TOTALS.S - tally[0].done;
+  document.getElementById(cid+'-hunt-tally').textContent =
+    `${slain} of ${ELITE_MARK_TOTAL} marks ticked. ` +
+    (left === 0 ? 'Every S rank accounted for.' : `${left} S rank${left === 1 ? '' : 's'} still out there.`);
+}
+
+function toggleHunt(cid, id, on){
+  const c = getChar(cid);
+  if(on) c.hunts[id] = true;
+  else delete c.hunts[id];
+  bumpHunts(cid);
+  renderHuntDash(cid);
+  scheduleSave();
+}
+
+function toggleHuntGroup(cid, key){
+  const c = getChar(cid);
+  c.huntsCollapsed[key] = !huntGroupCollapsed(c, key);
+  bumpHunts(cid);
+  scheduleSave();
+}
+
+/* ---------- cosmic tools ----------
+   Research data per class, from the cosmicTools block of a Time Memoria export. Nothing
+   here is typed in: the plugin reads the game's own research module, and a hand-entered
+   figure would sit beside it with the same confidence it has not earned.
+
+   The export carries no stage name, only the cumulative total each data type needs for
+   the next upgrade. The stage is found by matching that set of totals to one column of
+   the wiki's table ("Cosmic Tools", revision 9 July 2026). The data types a stage asks
+   for grow as the tool climbs, so the set of types and their totals together pick out
+   exactly one column. A set that matches none means a later patch added stages; the
+   figures are still shown, only the name is withheld. */
+const COSMIC_TYPE_NUMERALS = ['I','II','III','IV','V','VI','VII'];
+
+// Every stage in order. `needs` is what the upgrade *to* that stage requires, Type I
+// first. Item and equip levels are from the per-stage item pages, and are the same
+// for all eleven classes.
+const COSMIC_STAGES = [
+  {form:0, ver:'Prototype v0.1', il:10,  lv:10,  needs:[]},
+  {form:0, ver:'Prototype v0.2', il:30,  lv:30,  needs:[200]},
+  {form:0, ver:'Prototype v0.3', il:55,  lv:50,  needs:[500]},
+  {form:0, ver:'Prototype v0.4', il:150, lv:60,  needs:[700,300]},
+  {form:0, ver:'Prototype v0.5', il:290, lv:70,  needs:[1000,800]},
+  {form:0, ver:'Prototype v0.6', il:430, lv:80,  needs:[1300,1200,500]},
+  {form:0, ver:'Prototype v0.7', il:560, lv:90,  needs:[1700,1700,1100]},
+  {form:0, ver:'Prototype v0.8', il:690, lv:100, needs:[2200,2300,1700,700]},
+  {form:0, ver:'',               il:720, lv:100, needs:[2800,2900,2300,1500]},
+  {form:0, ver:'v1.1',           il:725, lv:100, needs:[3000,3000,3000,2000]},
+  {form:0, ver:'v1.2',           il:730, lv:100, needs:[3450,3400,3250,2250,100]},
+  {form:0, ver:'v1.3',           il:735, lv:100, needs:[3900,3800,3650,2650,400]},
+  {form:0, ver:'v1.4',           il:740, lv:100, needs:[4300,4300,4150,3200,900]},
+  {form:1, ver:'',               il:750, lv:100, needs:[4700,4700,4700,4000,1500]},
+  {form:1, ver:'v1.1',           il:755, lv:100, needs:[5500,5500,5500,4300,1800]},
+  {form:1, ver:'v1.2',           il:760, lv:100, needs:[6300,6300,6300,5500,2550,600]},
+  {form:2, ver:'',               il:765, lv:100, needs:[7100,7100,7100,7100,3150,1600]},
+  {form:2, ver:'v1.1',           il:770, lv:100, needs:[7900,7900,7900,7900,3950,1900]},
+  {form:2, ver:'v1.2',           il:775, lv:100, needs:[8700,8700,8700,8700,4750,2300,600]},
+  {form:3, ver:'',               il:780, lv:100, needs:[9500,9500,9500,9500,5600,2700,1600]}
+];
+// [tier, index of its last stage]. A tool that reaches that stage counts toward the
+// tier's research bonus for the other tools.
+const COSMIC_TIERS = [['Novice',8], ['Intermediate',13], ['Advanced',16], ['Expert',19]];
+
+// One name per form: Cosmic, Stellar, Hyper, Stars. The Hyper and Stars forms do not
+// follow one pattern ("Hypermallet", "Cross-pein Hyperhammer", "Fishing Hyperrod"), so
+// each is written out rather than built.
+const COSMIC_TOOL_NAMES = {
+  Carpenter:     ['Cosmic Saw','Stellar Saw','Hypersaw','Saw of Stars'],
+  Blacksmith:    ['Cosmic Cross-pein Hammer','Stellar Cross-pein Hammer','Cross-pein Hyperhammer','Cross-pein Hammer of Stars'],
+  Armorer:       ['Cosmic Raising Hammer','Stellar Raising Hammer','Raising Hyperhammer','Raising Hammer of Stars'],
+  Goldsmith:     ['Cosmic Mallet','Stellar Mallet','Hypermallet','Mallet of Stars'],
+  Leatherworker: ['Cosmic Round Knife','Stellar Round Knife','Round Hyperknife','Round Knife of Stars'],
+  Weaver:        ['Cosmic Needle','Stellar Needle','Hyperneedle','Needle of Stars'],
+  Alchemist:     ['Cosmic Alembic','Stellar Alembic','Hyperalembic','Alembic of Stars'],
+  Culinarian:    ['Cosmic Frypan','Stellar Frypan','Hyperfrypan','Frypan of Stars'],
+  Miner:         ['Cosmic Pickaxe','Stellar Pickaxe','Hyperpickaxe','Pickaxe of Stars'],
+  Botanist:      ['Cosmic Hatchet','Stellar Hatchet','Hyperhatchet','Hatchet of Stars'],
+  Fisher:        ['Cosmic Fishing Rod','Stellar Fishing Rod','Fishing Hyperrod','Fishing Rod of Stars']
+};
+const COSMIC_CLASSES = CRAFT_JOBS.concat(GATHER_JOBS);
+
+function cosmicToolName(job, stageIndex){
+  const stage = COSMIC_STAGES[stageIndex];
+  const names = COSMIC_TOOL_NAMES[job];
+  if(!stage || !names) return null;
+  return names[stage.form] + (stage.ver ? ' ' + stage.ver : '');
+}
+function cosmicTierOf(stageIndex){
+  return (COSMIC_TIERS.find(([, last]) => stageIndex <= last) || COSMIC_TIERS[COSMIC_TIERS.length-1])[0];
+}
+// The stage the tool is at now: the one before the column whose totals match. -1 when
+// no column matches.
+function cosmicStageIndex(types){
+  const needed = {};
+  types.forEach(t => { needed[t.type] = t.needed; });
+  const count = Object.keys(needed).length;
+  for(let i = 1; i < COSMIC_STAGES.length; i++){
+    const needs = COSMIC_STAGES[i].needs;
+    if(needs.length === count && needs.every((n, k) => needed[k+1] === n)) return i - 1;
+  }
+  return -1;
+}
+
+// "Type I", "Types I and II", "Types I, II and IV".
+function cosmicTypeList(types){
+  const n = types.map(t => COSMIC_TYPE_NUMERALS[t.type-1] || String(t.type));
+  if(n.length === 1) return 'Type ' + n[0];
+  return 'Types ' + n.slice(0, -1).join(', ') + ' and ' + n[n.length-1];
+}
+
+function cosmicClassView(job, types){
+  const idx = cosmicStageIndex(types);
+  const rows = types.map(t => {
+    const short = Math.max(0, t.needed - t.current);
+    return {type: t.type, full: t.max > 0 && t.current >= t.max,
+      label: `Type ${COSMIC_TYPE_NUMERALS[t.type-1] || t.type}`,
+      current: fmt(t.current), needed: fmt(t.needed), short: short ? fmt(short) : '—', max: fmt(t.max)};
+  });
+
+  // String(): a class this page has no tool names for reads "null", as the HTML strings did.
+  const stage = idx < 0 ? null : {
+    name: String(cosmicToolName(job, idx)),
+    detail: `· item level ${COSMIC_STAGES[idx].il} · ${cosmicTierOf(idx)} tier`,
+    next: `Next: ${String(cosmicToolName(job, idx+1))} · item level ${COSMIC_STAGES[idx+1].il}`
+  };
+
+  const notes = [];
+  const full = types.filter(t => t.max > 0 && t.current >= t.max);
+  if(full.length){
+    const one = full.length === 1;
+    notes.push(`${cosmicTypeList(full)} ${one ? 'is' : 'are'} at the storage limit. More ${cosmicTypeList(full).replace(/^Types? /,'Type ')} data is lost until the upgrade.`);
+  }
+  if(types.every(t => t.current >= t.needed)) notes.push('Each data type meets the requirement for the next upgrade.');
+
+  return {job, stage, rows, notes};
+}
+function cosmicView(c){
+  const reading = c.cosmicTools;
+  if(!reading) return null;
+  const jobs = reading.jobs || {};
+  const have = COSMIC_CLASSES.filter(j => Array.isArray(jobs[j]) && jobs[j].length);
+  // A class name this page does not know (a new class, or a plugin that could not
+  // name one) is still shown, after the known ones.
+  const extra = Object.keys(jobs).filter(j => !COSMIC_CLASSES.includes(j) && Array.isArray(jobs[j]) && jobs[j].length);
+  return {
+    asOf: reading.asOf ? fmtTmTimestamp(reading.asOf) : 'an unknown time',
+    missing: COSMIC_CLASSES.filter(j => !have.includes(j)).join(', '),
+    classes: have.concat(extra).map(j => cosmicClassView(j, jobs[j]))
+  };
+}
+/* Read-only: the meta lines and the class blocks are two boxState apps given the same
+   view. renderCosmic bumps state.tick on both. */
+function cosmicSetup(props){
+  const view = Vue.computed(() => { props.state.tick; const c = getChar(props.state.cid); return c ? cosmicView(c) : null; });
+  return {view};
+}
+const CosmicMeta = {
+  props: ['state'],
+  setup: cosmicSetup,
+  template: `
+    <template v-if="view">
+      <div class="check-note ok">Research data as of {{ view.asOf }}. Tales of Milestones reads it only in a Cosmic Exploration zone, so this time can be earlier than the export.</div>
+      <div v-if="view.missing" class="check-note ok">No research data in the export for {{ view.missing }}.</div>
+    </template>`
+};
+const CosmicTools = {
+  props: ['state'],
+  setup: cosmicSetup,
+  template: `
+    <div v-if="!view" class="empty-hint">No Cosmic tool data. Import a Tales of Milestones export to fill in this section. Tales of Milestones reads the research data only when your character is in a Cosmic Exploration zone.</div>
+    <div v-else-if="!view.classes.length" class="empty-hint">The export has no research data for any class.</div>
+    <template v-else><div v-for="k in view.classes" :key="k.job" class="cosmic-class">
+      <div class="subhead">{{ k.job }}</div>
+      <div v-if="!k.stage" class="cosmic-stage faint">The research totals match no stage in this page's table. A later patch can add stages.</div>
+      <template v-else>
+        <div class="cosmic-stage">{{ k.stage.name }} <span class="faint">{{ k.stage.detail }}</span></div>
+        <div class="cosmic-next faint">{{ k.stage.next }}</div>
+      </template>
+      <div class="cosmic-grid">
+        <div class="cosmic-row head"><span>Data</span><span>Current</span><span>Needed</span><span>Shortfall</span><span>Storage limit</span></div>
+        <div v-for="r in k.rows" :key="r.type" :class="r.full ? 'cosmic-row full' : 'cosmic-row'">
+          <span class="cosmic-type">{{ r.label }}</span>
+          <span class="cosmic-num">{{ r.current }}</span>
+          <span class="cosmic-num">{{ r.needed }}</span>
+          <span class="cosmic-num">{{ r.short }}</span>
+          <span class="cosmic-num faint">{{ r.max }}</span>
+        </div>
+      </div>
+      <div v-for="n in k.notes" :key="n" class="cosmic-note">{{ n }}</div>
+    </div></template>`
+};
+function renderCosmic(cid){
+  const meta = boxState(cid+'-cosmic-meta', CosmicMeta);
+  const box = boxState(cid+'-cosmic', CosmicTools);
+  if(!box || !meta) return;
+  Object.assign(meta, {cid, tick: (meta.tick || 0) + 1});
+  Object.assign(box, {cid, tick: (box.tick || 0) + 1});
+}
+
+/* ---------- red alerts ----------
+   Reference data only: for each zone, each Red Alert weather and variant, the two
+   regions and the classes with a critical mission in each. From the wiki page "Red
+   Alert", revision 12 June 2026, parsed from its {{Cosmic Red Alert table}} templates.
+   The per-zone counts agree with the page's own text: 33 critical missions in Sinus
+   Ardorum and Phaenna (three per class), 22 in Oizys and Auxesia (two per class).
+
+   This never says which Red Alert comes next or when. They have no schedule, each world
+   and zone runs its own, and the only live source is player reports, which would need a
+   server. The wiki's "the same red alert type cannot spawn twice in a row" does not say
+   whether "type" is the weather or the variant, so not even that is offered.
+
+   Variants are α and β, as the wiki's notes and dialogue name them. `lock` is the
+   world development log a variant needs before it can occur. */
+const RED_ALERTS = [
+  {zone:"Sinus Ardorum", weather:"Astromagnetic Storm",
+   lock:"On a world before development log 8 (Gleamslope available), variant β does not occur.",
+   variants:[
+    [
+      {dir:"Far South", xy:"24.7, 32.5", missions:[["Armorer","Spare Vacuum Tanks"], ["Goldsmith","Intricate Vacuum Parts"], ["Alchemist","Aether-resistant Agent"]]},
+      {dir:"North", xy:"19.7, 16.6", missions:[["Miner","Fallen Drone Salvage"], ["Fisher","Sunken Drone Salvage"]]}
+    ],
+    [
+      {dir:"Far South", xy:"19.9, 36.9", missions:[["Carpenter","Work Ladders"], ["Goldsmith","Lighting Repair Tools"], ["Weaver","Spare Cloth"]]},
+      {dir:"Far West", xy:"12.2, 20.1", missions:[["Culinarian","Cured Foodstuffs"], ["Miner","Insulating Material"], ["Fisher","Edible Fish"]]}
+    ]
+   ]},
+  {zone:"Sinus Ardorum", weather:"Meteor Showers",
+   lock:"On a world before development log 14 (Lunar Nadir Cosmoliner), variant β does not occur.",
+   variants:[
+    [
+      {dir:"Southwest", xy:"17.1, 25.7", missions:[["Blacksmith","Meteorite Drills"], ["Leatherworker","Impenetrable Gloves"], ["Miner","Rare Siderite Extraction"]]},
+      {dir:"North", xy:"22.2, 14.5", missions:[["Armorer","Vehicular Plating"], ["Goldsmith","Spare Vehicle Parts"]]}
+    ],
+    [
+      {dir:"Far Northeast", xy:"38.1, 13.9", missions:[["Blacksmith","Vacuum Muzzles"], ["Armorer","Gas Tanks"], ["Leatherworker","Reinforced Gas Masks"]]},
+      {dir:"Far Northeast", xy:"31.3, 4.4", missions:[["Alchemist","Gas Poisoning Antidote"], ["Culinarian","Nutrient Supplement Jelly"], ["Botanist","Medicinal Sclerotia"]]}
+    ]
+   ]},
+  {zone:"Sinus Ardorum", weather:"Sporing Mist",
+   variants:[
+    [
+      {dir:"Far East", xy:"32.3, 22.5", missions:[["Blacksmith","Flamethrower Parts"], ["Alchemist","Flamethrower Fuel"]]},
+      {dir:"Far East", xy:"34.6, 23.5", missions:[["Carpenter","Fungal Building Materials"], ["Weaver","Fungal Cloth"], ["Botanist","Mutated Spongoi"]]}
+    ],
+    [
+      {dir:"Far Southeast", xy:"29.1, 35.6", missions:[["Carpenter","Kindling"], ["Leatherworker","Flame-resistant Workboots"], ["Weaver","Flame-resistant Work Cloth"]]},
+      {dir:"Northeast", xy:"23.5, 17.3", missions:[["Culinarian","Irregular Spongoi Analysis"], ["Botanist","Sporing Mist Analysis"], ["Fisher","Mutated Fish"]]}
+    ]
+   ]},
+  {zone:"Phaenna", weather:"Thunderstorms",
+   lock:"On a world before development log 7 (The Soda-lime Float Cosmoliner), variant β does not occur.",
+   variants:[
+    [
+      {dir:"Northeast", xy:"29.9, 12.6", missions:[["Carpenter","Wiring Repair Tools"], ["Leatherworker","Wiring Repair Gloves"], ["Alchemist","Wiring Repair Rubber"]]},
+      {dir:"East", xy:"30.1, 18.1", missions:[["Goldsmith","Precision Components"], ["Weaver","Repair Cloth"]]}
+    ],
+    [
+      {dir:"Central", xy:"24.9, 17.3", missions:[["Goldsmith","Electroconductive Wire"], ["Weaver","Hanging Tool Pouches"], ["Botanist","Supply Route Clearing"]]},
+      {dir:"Far Northwest", xy:"9.2, 11.2", missions:[["Blacksmith","Experimental Lightning Rod Materials"], ["Alchemist","Experimental Storage Batteries"], ["Miner","Lightning Rod Materials"]]}
+    ]
+   ]},
+  {zone:"Phaenna", weather:"Annealing Winds",
+   lock:"On a world before development log 9 (Capsule Chasm Cosmoliner), variant β does not occur.",
+   variants:[
+    [
+      {dir:"Far North", xy:"26.3, 7.4", missions:[["Culinarian","Hot Soup"], ["Miner","Rare Glass Resources"], ["Fisher","Soup Broth Ingredients"]]},
+      {dir:"Far Northwest", xy:"11.2, 6.2", missions:[["Blacksmith","Vitreobotany Tools"], ["Leatherworker","Reinforced Lumbering Boots"], ["Botanist","Glass Flora Samples"]]}
+    ],
+    [
+      {dir:"East", xy:"29.6, 22.2", missions:[["Armorer","Upgrade Parts"], ["Culinarian","Reconfiguration Lubricant"], ["Fisher","Oil-extractable Aquatic Life"]]},
+      {dir:"South", xy:"21.7, 28.3", missions:[["Carpenter","Mutated Flora Samples"], ["Botanist","Mutated Flora"]]}
+    ]
+   ]},
+  {zone:"Phaenna", weather:"Glass Rain",
+   lock:"On a world before development log 9 (Capsule Chasm Cosmoliner), variant α does not occur. On a world before development log 14 (Fusingway Vent unlocked), variant β does not occur.",
+   variants:[
+    [
+      {dir:"Southeast", xy:"29.3, 25.6", missions:[["Carpenter","Glass Dust Cleaning Tools"], ["Armorer","Dust Tanks"], ["Leatherworker","Dust-filtering Masks"]]},
+      {dir:"Far Southeast", xy:"32.5, 34.2", missions:[["Culinarian","Water Quality Inspection Samples"], ["Fisher","Elemental-esque Specimen Acquisition"]]}
+    ],
+    [
+      {dir:"Far South", xy:"24.6, 31.4", missions:[["Armorer","Rover Plating"], ["Goldsmith","Spare Transport Parts"], ["Miner","Metallic Materials"]]},
+      {dir:"Far West", xy:"11.8, 22.3", missions:[["Blacksmith","Nozzle Parts"], ["Weaver","Dust Filters"], ["Alchemist","Surface Protectant"]]}
+    ]
+   ]},
+  {zone:"Oizys", weather:"Gravitational Anomaly",
+   variants:[
+    [
+      {dir:"Far North", xy:"22.9, 11.9", missions:[["Blacksmith","Compact Gravity Generator"], ["Leatherworker","Sturdy Leather Band"]]},
+      {dir:"North", xy:"17.6, 20.1", missions:[["Armorer","Rover Chain"], ["Goldsmith","Portable Beacon"], ["Weaver","Rover Protective Covering"]]}
+    ]
+   ]},
+  {zone:"Oizys", weather:"Bubble Bloom",
+   variants:[
+    [
+      {dir:"West", xy:"10.1, 24.6", missions:[["Carpenter","Hydrophytic Flora Biofuel"], ["Culinarian","Hydrophytic Flora Preservatives"], ["Botanist","Hydrophytic Flora Harvest"]]},
+      {dir:"Far Southwest", xy:"14.1, 39.0", missions:[["Goldsmith","Wrought Metallic Coral"], ["Miner","Gilded Coral Rush"], ["Fisher","Iron Coral Collection"]]}
+    ]
+   ]},
+  {zone:"Oizys", weather:"Gale-force Winds",
+   variants:[
+    [
+      {dir:"Far Northeast", xy:"33.2, 12.9", missions:[["Armorer","Overturned Rover Repair"], ["Leatherworker","Mechanic's Gloves"], ["Culinarian","Emergency Pananoodles"]]},
+      {dir:"East", xy:"24.1, 20.2", missions:[["Carpenter","Relic Restoration Brushes"], ["Alchemist","Ruin Remedy"], ["Fisher","Sunken Relic Salvage"]]}
+    ],
+    [
+      {dir:"Far Northwest", xy:"8.2, 12.3", missions:[["Blacksmith","Astrodrill Replacement Bit"], ["Miner","Long-lost Carrot Mining"]]},
+      {dir:"North", xy:"19.0, 20.5", missions:[["Weaver","Emergency Bandaging"], ["Alchemist","Emergency Salves"], ["Botanist","Medicinal Flora Harvest"]]}
+    ]
+   ]},
+  {zone:"Auxesia", weather:"Auroral Flare",
+   variants:[
+    [
+      {dir:"Central", xy:"20.7, 28.5", missions:[["Blacksmith","Plant Incineration Equipment"], ["Leatherworker","Flora Extraction Gloves"], ["Botanist","Flamethrower Alternative"]]},
+      {dir:"Far West", xy:"8.3, 27.2", missions:[["Culinarian","Water Sample Collection"], ["Fisher","Luminescent Aquatic Flora"]]}
+    ],
+    [
+      {dir:"Northwest", xy:"21.7, 24.0", missions:[["Carpenter","Firepower Fuel"], ["Weaver","Incineration Masks"], ["Alchemist","Functional Firelighter"]]},
+      {dir:"North", xy:"27.4, 21.6", missions:[["Blacksmith","Boring Drill Bits"], ["Culinarian","Drill Lubricant"], ["Miner","Rare Gold Artichoke Ore"]]}
+    ]
+   ]},
+  {zone:"Auxesia", weather:"Floracane",
+   variants:[
+    [
+      {dir:"West", xy:"14.1, 30.0", missions:[["Armorer","Machina Repair Plating"], ["Goldsmith","Precision Replacement Parts"], ["Miner","Machina Repair Plating Materials"]]},
+      {dir:"Far Northwest", xy:"16.7, 11.3", missions:[["Carpenter","Wakening Incense"], ["Alchemist","Sobering Tonic"], ["Fisher","Incense Materials"]]}
+    ],
+    [
+      {dir:"East", xy:"36.4, 31.7", missions:[["Goldsmith","Replacement Drone Circuits"], ["Weaver","Drone Repair Tool Pouch"]]},
+      {dir:"West", xy:"14.4, 25.9", missions:[["Armorer","Spore Collection Tanks"], ["Leatherworker","Filtered Masks"], ["Botanist","Fungi Samples"]]}
+    ]
+   ]}
+];
+const RED_ALERT_ZONES = [...new Set(RED_ALERTS.map(a => a.zone))];
+const RED_ALERT_VARIANT_NAMES = ['α','β'];
+
+// The class filter is shared by every character, since the table is the same for all.
+function redAlertClass(){
+  const k = DATA.ui.redAlertClass;
+  return COSMIC_CLASSES.includes(k) ? k : '';
+}
+function onRedAlertClassChange(cid){
+  DATA.ui.redAlertClass = document.getElementById(cid+'-ra-class').value;
+  DATA.chars.forEach(c => renderRedAlerts(c.id));
+  scheduleSave();
+}
+
+/* The Red Alert table for one class filter, as plain data. The table is the same for
+   every character, so only the pick changes it. */
+function redAlertView(pick){
+  const has = regions => regions.some(r => r.missions.some(([cls]) => cls === pick));
+  // Counted per zone, so each zone's own frame can state its own totals and the
+  // all-zones frame their sum.
+  const summary = (v, m) => pick
+    ? `${pick}: ${m} critical missions in ${v} Red Alert variants.`
+    : `${v} variants, ${m} critical missions.`;
+  let variantsShown = 0, missionsShown = 0;
+  const zones = RED_ALERT_ZONES.map(zone => {
+    let zv = 0, zm = 0;
+    const weathers = RED_ALERTS.filter(a => a.zone === zone).map(a => {
+      const variants = a.variants
+        .map((regions, vi) => ({regions, vi}))
+        .filter(({regions}) => !pick || has(regions));
+      if(!variants.length) return null;
+      zv += variants.length;
+      variants.forEach(({regions}) => regions.forEach(r =>
+        zm += r.missions.filter(([cls]) => !pick || cls === pick).length));
+      return {weather: a.weather, lock: a.lock || '', variants: variants.map(({regions, vi}) => ({
+        vi,
+        label: a.variants.length > 1 ? `Variant ${RED_ALERT_VARIANT_NAMES[vi]}` : 'One variant',
+        regions: regions.map(r => ({dir: r.dir, xy: r.xy, missions: r.missions.map(([cls, mission]) => ({
+          cls, mission, mark: pick ? (cls === pick ? ' pick' : ' other') : ''
+        }))}))
+      }))};
+    }).filter(Boolean);
+    variantsShown += zv; missionsShown += zm;
+    return {zone, slug: frameSlug(zone), summary: summary(zv, zm), weathers};
+  });
+  return {summary: summary(variantsShown, missionsShown), zones};
+}
+const RedAlertBar = {
+  props: ['state'],
+  setup(){ return {COSMIC_CLASSES, onRedAlertClassChange}; },
+  template: `
+    <label class="ra-pick">Class
+      <select :id="state.cid + '-ra-class'" :value="state.pick" @change="onRedAlertClassChange(state.cid)">
+        <option value="">All classes</option>
+        <option v-for="j in COSMIC_CLASSES" :key="j" :value="j">{{ j }}</option>
+      </select>
+    </label>`
+};
+/* The zone blocks carry data-frame, and applyFrames sets frame-on on them by hand, so
+   their class attributes stay static: Vue never rewrites them. */
+const RedAlerts = {
+  props: ['state'],
+  setup(props){
+    const view = Vue.computed(() => { props.state.tick; return redAlertView(props.state.pick || ''); });
+    return {view};
+  },
+  template: `
+    <div class="check-note ok" data-frame="red-alerts">{{ view.summary }}</div>
+    <div class="ra-columns">
+      <div v-for="z in view.zones" :key="z.zone" class="ra-zone" :data-frame="'red-alerts ' + z.slug">
+        <div class="subhead">{{ z.zone }}</div>
+        <div class="check-note ok ra-zone-sum" :data-frame="z.slug">{{ z.summary }}</div>
+        <div class="ra-weathers">
+          <div v-for="w in z.weathers" :key="w.weather" class="ra-weather">
+            <div class="ra-wname">{{ w.weather }}</div>
+            <div v-for="v in w.variants" :key="v.vi" class="ra-variant">
+              <div class="ra-vlabel">{{ v.label }}</div>
+              <div class="ra-regions">
+                <div v-for="r in v.regions" :key="r.dir + r.xy" class="ra-region">
+                  <div class="ra-where">{{ r.dir }} <span class="faint">({{ r.xy }})</span></div>
+                  <div v-for="m in r.missions" :key="m.cls + m.mission" :class="'ra-mission' + m.mark">
+                    <span class="ra-cls">{{ m.cls }}</span><span class="ra-name">{{ m.mission }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-if="w.lock" class="ra-lock">{{ w.lock }}</div>
+          </div>
+          <div v-if="!z.weathers.length" class="empty-hint">No Red Alert in this zone includes this class.</div>
+        </div>
+      </div>
+    </div>`
+};
+function renderRedAlerts(cid){
+  const pick = redAlertClass();
+  const bar = boxState(cid + '-ra-bar', RedAlertBar);
+  const box = boxState(cid + '-redalert', RedAlerts);
+  if(!bar || !box) return;
+  Object.assign(bar, {cid, pick});
+  Object.assign(box, {cid, pick, tick: (box.tick || 0) + 1});
+  // A filter change adds and removes zone summaries and weathers; settle the frames once
+  // Vue has drawn them.
+  Vue.nextTick(() => applyFrames(cid, 'cosmic'));
+}
+
+/* ---------- job quest checklist (levels 1-70) ---------- */
+// Job names never collide across combat/craft/gather, so one lookup covers all three.
+function jobLevelOf(c, job){
+  if(c.combat[job] !== undefined) return c.combat[job]||0;
+  if(c.craft[job] !== undefined) return c.craft[job]||0;
+  return c.gather[job]||0;
+}
+/* The job-quest button's look as {cls, label}. The job tables draw the button. */
+function jqToggleOf(c, job, lvl){
+  // No sourced list yet (Viper, Pictomancer, Beastmaster) must read as "no data," never
+  // as a false "caught up" — zero missed only means something when there's a real list.
+  if(!JOB_QUESTS[job] || !JOB_QUESTS[job].length) return {cls: 'neutral', label: '—'};
+  const missed = missedJobQuests(job, lvl, c.jobQuestsDone);
+  return {cls: lvl<=0 ? 'neutral' : (missed.length ? 'warn' : 'ok'),
+          label: lvl<=0 ? 'quests' : (missed.length ? `⚠ ${missed.length}` : '✓')};
+}
+// Own (per-job) quests and shared role quests, merged and level-sorted. Same deterministic
+// order every call (stable sort, own always concatenated before role) so an index computed
+// here still points at the same quest when toggleJobQuestDone looks it back up.
+function mergedJobQuestList(job){
+  const ownList = (JOB_QUESTS[job] || []).map(q => ({level:q.level, name:q.name, src:'own'}));
+  const roleList = roleQuestsFor(job).map(q => ({level:q.level, name:q.name, src:'role', trackKey:q.trackKey}));
+  return ownList.concat(roleList).sort((a,b)=>a.level-b.level);
+}
+/* One job's quest checklist, drawn when its panel is open. `typed` is the job tables'
+   redraw counter, so a level typed or a quest ticked elsewhere (a shared role quest)
+   shows here at once. The checkboxes follow the data: Vue only sets `checked` when
+   the bound value changes, so a click is never undone. */
+const JqPanel = {
+  props: {cid: String, job: String, typed: Number},
+  setup(props){
+    const items = Vue.computed(() => {
+      props.typed;
+      const c = getChar(props.cid);
+      const lvl = jobLevelOf(c, props.job);
+      const done = c.jobQuestsDone[props.job] || {};
+      return mergedJobQuestList(props.job).map((q, i) => {
+        const isDone = q.src==='own' ? !!done[q.name] : !!((c.jobQuestsDone['role:'+q.trackKey] || {})[q.name]);
+        return {i, level: q.level, name: q.name, role: q.src==='role', done: isDone,
+                missed: q.level <= lvl && !isDone, future: q.level > lvl};
+      });
+    });
+    return {items, toggleJobQuestDone};
+  },
+  template: `
+    <div class="jq-panel"><template v-if="items.length"><div v-for="q in items" :key="q.i" class="jq-item" :class="{missed: q.missed, future: q.future}">
+      <input type="checkbox" :id="cid + '-jq-' + job + '-' + q.i" :checked="q.done" @change="toggleJobQuestDone(cid, job, q.i)">
+      <span class="jq-level">Lv.{{ q.level }}</span>
+      <span class="jq-name">{{ q.name }}<template v-if="q.role"> <span class="jq-shared-tag">shared</span></template></span>
+      <span v-if="q.missed" class="jq-flag">not done</span>
+    </div></template><div v-else class="empty-hint">No quest data loaded for this job yet.</div></div>`
+};
+/* ---------- quest items: one shopping list for many job quests ---------- */
+// JOBQUEST_ITEMS (jobquest-items.js) maps a quest title to its hand-in items. The quests are
+// the same ones JqPanel lists, so a ticked quest drops out of the list here too.
+//
+// A shared role quest is counted once however many jobs of that role are selected, because
+// finishing it on one job finishes it for all of them (the same rule missedJobQuests uses).
+function questItemsForJob(c, job){
+  const lvl = jobLevelOf(c, job);
+  const out = [];
+  mergedJobQuestList(job).forEach(q=>{
+    const items = JOBQUEST_ITEMS[q.name];
+    if(!items) return;
+    const key = q.src==='own' ? job : 'role:'+q.trackKey;
+    if((c.jobQuestsDone[key] || {})[q.name]) return;
+    if(q.level > lvl && !c.itemsAhead) return;
+    out.push({job, key, name:q.name, level:q.level, items});
+  });
+  return out;
+}
+// Crafters and gatherers only. A combat job quest that asks for an item asks for a drop or a
+// keepsake (Ashkin Hearts, an Aetherometer), nothing a person crafts or gathers on purpose,
+// so listing them would bury the items this view is for.
+function questItemJobs(c){
+  const show = job => !hidesZeroJobs(c) || jobLevelOf(c, job) > 0;
+  return CRAFT_JOBS.concat(GATHER_JOBS)
+    .filter(job => show(job) && questItemsForJob(c, job).length);
+}
+function questItemTotals(c, jobs){
+  const seen = new Set(), rows = new Map();
+  jobs.forEach(job => questItemsForJob(c, job).forEach(q=>{
+    const id = q.key+'|'+q.name;
+    if(seen.has(id)) return;
+    seen.add(id);
+    q.items.forEach(([qty, name, hq, key])=>{
+      const k = name+'|'+hq;
+      let row = rows.get(k);
+      if(!row){ row = {name, hq:!!hq, key:!!key, qty:0, from:[]}; rows.set(k, row); }
+      row.qty += qty;
+      row.from.push(`${q.job} ${q.level}`);
+    });
+  }));
+  return [...rows.values()].sort((a,b)=>a.name.localeCompare(b.name));
+}
+// One "Nx Name" line per item, which is the text format Allagan Tools reads in its Teamcraft
+// import. HQ is written "Name(HQ)" with no space: Allagan Tools strips the "(HQ)" marker
+// after joining the words, and a space before it leaves a trailing space that no longer
+// matches the item name.
+// Key Items are left out: the quest provides them, so there is nothing to craft or buy.
+function questItemsText(c, rows){
+  return rows.filter(r => !r.key).map(r => `${r.qty}x ${r.name}${r.hq && c.itemsHq ? '(HQ)' : ''}`).join('\n');
+}
+/* Drawn by Vue (boxState). Every switch here flips a setting and calls
+   renderQuestItems, which bumps state.tick. The checkboxes follow the settings; the
+   text box is read-only, so binding its value is safe. */
+const QuestItems = {
+  props: ['state'],
+  setup(props){
+    const view = Vue.computed(() => {
+      props.state.tick;
+      const c = getChar(props.state.cid);
+      if(!c) return null;
+      const jobs = questItemJobs(c);
+      const rows = questItemTotals(c, jobs.filter(j => !c.itemJobsOff[j]));
+      return {ahead: !!c.itemsAhead, hq: !!c.itemsHq, rows,
+        chips: jobs.map(job => ({job, on: !c.itemJobsOff[job], n: questItemsForJob(c, job).length})),
+        text: questItemsText(c, rows), textRows: Math.max(1, Math.min(rows.filter(r=>!r.key).length, 10))};
+    });
+    const cid = () => props.state.cid;
+    return {view, toggleItemJob: job => toggleItemJob(cid(), job), toggleItemsAhead: () => toggleItemsAhead(cid()),
+            toggleItemsHq: () => toggleItemsHq(cid()), copyQuestItems: () => copyQuestItems(cid())};
+  },
+  template: `
+    <template v-if="view">
+      <div v-if="view.chips.length" class="qi-chips"><label v-for="ch in view.chips" :key="ch.job" class="qi-chip"><input type="checkbox" :checked="ch.on" @change="toggleItemJob(ch.job)"> {{ ch.job }} <span class="qi-count">{{ ch.n }}</span></label></div>
+      <div class="qi-options">
+        <label><input type="checkbox" :checked="view.ahead" @change="toggleItemsAhead()"> Include quests above the job's current level</label>
+        <label><input type="checkbox" :checked="view.hq" @change="toggleItemsHq()"> Mark items HQ where the quest asks for HQ</label>
+      </div>
+      <div v-if="!view.chips.length" class="empty-hint">No job quest at or below your levels still needs an item. Tick the box above to look ahead.</div>
+      <template v-else-if="view.rows.length">
+        <table class="qi-table"><tbody>
+          <tr><th style="width:56px;text-align:right">Qty</th><th>Item</th><th>For</th></tr>
+          <tr v-for="r in view.rows" :key="r.name + (r.hq ? ':hq' : '')" :class="{'qi-key-row': r.key}">
+            <td class="qi-qty">{{ r.qty }}</td>
+            <td>{{ r.name }}<template v-if="r.hq"> <span class="qi-hq">HQ</span></template><template v-if="r.key"> <span class="qi-key" title="Item ingredients provided by the quest" aria-label="Item ingredients provided by the quest">🔑</span></template></td>
+            <td class="qi-from">{{ r.from.join(', ') }}</td>
+          </tr>
+        </tbody></table>
+        <div class="qi-actions">
+          <button class="add-btn" style="width:auto;margin:0" @click="copyQuestItems()">Copy for Allagan Tools</button>
+          <span class="hint" :id="state.cid + '-qitems-copied'"></span>
+        </div>
+        <textarea class="qi-text" :id="state.cid + '-qitems-text'" readonly :rows="view.textRows" :value="view.text"></textarea>
+        <div class="check-note ok">In Allagan Tools, open the Teamcraft import for a craft list and paste. Rows with a key icon are left out of the copied text. Allagan Tools also skips items it cannot craft, such as gathered materials.</div>
+      </template>
+      <div v-else class="empty-hint">No job is selected.</div>
+    </template>`
+};
+function renderQuestItems(cid){
+  const state = boxState(cid+'-qitems', QuestItems);
+  if(state) Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+}
+function toggleItemJob(cid, job){
+  const c = getChar(cid);
+  if(c.itemJobsOff[job]) delete c.itemJobsOff[job]; else c.itemJobsOff[job] = true;
+  renderQuestItems(cid);
+  scheduleSave();
+}
+function toggleItemsAhead(cid){
+  const c = getChar(cid);
+  c.itemsAhead = !c.itemsAhead;
+  renderQuestItems(cid);
+  scheduleSave();
+}
+function toggleItemsHq(cid){
+  const c = getChar(cid);
+  c.itemsHq = !c.itemsHq;
+  renderQuestItems(cid);
+  scheduleSave();
+}
+function copyQuestItems(cid){
+  const ta = document.getElementById(cid+'-qitems-text');
+  if(!ta) return;
+  const say = ok => {
+    const el = document.getElementById(cid+'-qitems-copied');
+    if(el) el.textContent = ok ? 'Copied.' : 'Copy failed. Select the text below and copy it.';
+  };
+  const fallback = ()=>{
+    ta.select();
+    let ok = false;
+    try{ ok = document.execCommand('copy'); }catch(e){}
+    say(ok);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(ta.value).then(()=>say(true), fallback);
+  }else fallback();
+}
+/* One job: its row and, under it, its quest-checklist row. The level input is v-once
+   and keeps its id for collectCharInputs; `job` is the snapshot from the last full
+   render and `live` the marker, button and open state from the latest data. */
+const JobRow = {
+  components: {JqPanel},
+  props: {cid: String, kind: String, job: Object, live: Object, typed: Number},
+  setup: () => ({onMainInput, toggleJobQuests}),
+  template: `
+    <tr>
+      <td v-if="kind === 'combat'"><div class="job-cell"><span class="role-tag">{{ job.role }}</span><span class="job-name">{{ job.name }}</span></div></td>
+      <td v-else>{{ job.name }}</td>
+      <td :style="{width: kind === 'combat' ? '104px' : '96px'}"><input v-once type="text" :id="job.inputId" :value="job.lvl" @input="onMainInput(cid)"></td>
+      <td class="cap" :style="{width: kind === 'combat' ? '60px' : '52px'}">/ {{ job.cap }}</td>
+      <td :style="{width: kind === 'combat' ? '60px' : '66px'}" :id="job.markId"><span v-if="live.marker" :class="live.marker.cls">{{ live.marker.text }}</span></td>
+      <td style="width:56px" :id="cid + '-jqcell-' + job.name"><button class="jq-toggle" :class="live.jq.cls" :id="cid + '-jqbtn-' + job.name" @click="toggleJobQuests(cid, job.name)">{{ live.jq.label }}</button></td>
+    </tr>
+    <tr class="jq-panel-row" :id="cid + '-jqrow-' + job.name" :style="live.open ? {} : {display: 'none'}">
+      <td colspan="5" :id="cid + '-jqpanel-' + job.name"><jq-panel v-if="live.open" :cid="cid" :job="job.name" :typed="typed"></jq-panel></td>
+    </tr>`
+};
+/* The rows each box shows, as of a full render. */
+function jobSnapshot(c, cid, kind){
+  const show = job => !hidesZeroJobs(c) || jobLevelOf(c, job) > 0;
+  if(kind === 'combat'){
+    // A role whose every job is hidden takes its heading with it. "Physical Ranged DPS"
+    // over nothing at all is a heading describing an absence.
+    return {groups: JOB_ROLE_ORDER.map(role => ({role, label: JOB_ROLE_LABEL[role],
+      rows: COMBAT_JOBS.filter(j=>j[1]===role && show(j[0])).map(([name, r, capOverride]) => {
+        const id = name.replace(/\s/g,'');
+        return {name, role: r, cap: capOverride||100, lvl: c.combat[name]||0,
+                inputId: `${cid}-combat-${id}`, markId: `${cid}-ccap-${id}`};
+      })})).filter(g => g.rows.length)};
+  }
+  return {rows: (kind === 'craft' ? CRAFT_JOBS : GATHER_JOBS).filter(show).map(name => ({
+    name, cap: 100, lvl: c[kind][name]||0,
+    inputId: `${cid}-${kind}-${name}`, markId: `${cid}-${kind==='craft'?'craftmark':'gathermark'}-${name}`}))};
+}
+/* Every job's marker, quest button and open state, from the latest data. */
+function jobLive(c){
+  const out = {};
+  const combat = COMBAT_JOBS.map(([name,role,capOverride])=>({ name, level: c.combat[name]||0, cap: capOverride||100 }));
+  const combatLow = lowestStarted(combat);
+  combat.forEach(e => out[e.name] = {marker: markerOf(e.level, e.cap, combatLow.has(e.name))});
+  const craft = CRAFT_JOBS.map(name=>({ name, level: c.craft[name]||0, cap:100 }));
+  const craftRanks = rankLowestTiers(craft, 3);
+  craft.forEach(e => out[e.name] = {marker: rankMarkerOf(e.level, e.cap, craftRanks.get(e.name))});
+  const gather = GATHER_JOBS.map(name=>({ name, level: c.gather[name]||0, cap:100 }));
+  const gatherLow = lowestStarted(gather);
+  gather.forEach(e => out[e.name] = {marker: markerOf(e.level, e.cap, gatherLow.has(e.name))});
+  [...combat, ...craft, ...gather].forEach(e =>
+    Object.assign(out[e.name], {jq: jqToggleOf(c, e.name, e.level), open: !!c.jobQuestsOpen[e.name]}));
+  return out;
+}
+/* One of the three boxes (combat, craft, gather), drawn by Vue (boxState), the same
+   way as the custom trackers: renderJobTables bumps state.tick (a new snapshot and
+   every row made again); updateJobCaps bumps state.typed (markers, buttons and open
+   panels only). Crafting and gathering are <table> elements, so they get a <tbody>
+   as the HTML parser gave them before. */
+const JobBox = {
+  components: {JobRow},
+  props: ['state'],
+  setup(props){
+    const snap = Vue.computed(() => {
+      props.state.tick;
+      const c = getChar(props.state.cid);
+      return c && props.state.kind ? jobSnapshot(c, props.state.cid, props.state.kind) : null;
+    });
+    const live = Vue.computed(() => {
+      props.state.tick; props.state.typed;
+      const c = getChar(props.state.cid);
+      return c ? jobLive(c) : {};
+    });
+    return {snap, live};
+  },
+  template: `
+    <template v-if="snap && state.kind === 'combat'">
+      <template v-if="snap.groups.length">
+        <div v-for="g in snap.groups" :key="g.role" class="job-role"><div class="subhead">{{ g.label }}</div><table><tbody>
+          <job-row v-for="j in g.rows" :key="j.name + ':' + state.tick" :cid="state.cid" kind="combat" :job="j" :live="live[j.name]" :typed="state.typed || 0"></job-row>
+        </tbody></table></div>
+      </template>
+      <div v-else class="empty-hint">None levelled yet.</div>
+    </template>
+    <tbody v-else-if="snap">
+      <template v-if="snap.rows.length"><job-row v-for="j in snap.rows" :key="j.name + ':' + state.tick" :cid="state.cid" :kind="state.kind" :job="j" :live="live[j.name]" :typed="state.typed || 0"></job-row></template>
+      <tr v-else><td class="empty-hint">None levelled yet.</td></tr>
+    </tbody>`
+};
+function toggleJobQuests(cid, job){
+  collectAllInputs();
+  const c = getChar(cid);
+  c.jobQuestsOpen[job] = !c.jobQuestsOpen[job];
+  updateJobCaps(cid);
+  scheduleSave();
+}
+function toggleJobQuestDone(cid, job, index){
+  const c = getChar(cid);
+  const q = mergedJobQuestList(job)[index];
+  if(!q) return;
+  const chk = document.getElementById(`${cid}-jq-${job}-${index}`);
+  if(q.src==='role'){
+    const key = 'role:'+q.trackKey;
+    if(!c.jobQuestsDone[key]) c.jobQuestsDone[key] = {};
+    c.jobQuestsDone[key][q.name] = chk.checked;
+  }else{
+    if(!c.jobQuestsDone[job]) c.jobQuestsDone[job] = {};
+    c.jobQuestsDone[job][q.name] = chk.checked;
+  }
+  // A shared role quest shows in several jobs' panels; the redraw updates them all.
+  updateJobCaps(cid);
+  scheduleSave();
+}
+// Markers, job-quest badges and any open checklist panel need to reflect a level typed
+// just now, not only refresh on the next full page render.
+function updateJobCaps(cid){
+  ['combat', 'craft', 'gather'].forEach(kind => {
+    const state = boxState(cid+'-'+kind, JobBox);
+    if(state) state.typed = (state.typed || 0) + 1;
+  });
+}
+
+/* ---------- custom trackers (per character) ----------
+   Drawn by Vue (boxState). The inputs keep their ids, so collectCharInputs still
+   reads them back into the character on every keystroke.
+
+   Two counters, not one. state.tick (renderCustom) takes a new snapshot of the
+   list and makes every row again: the rows are keyed on it. state.typed
+   (onCustomInput) only redraws the percentage and the bar from the live data.
+   The inputs are v-once. Vue writes a bound `value` back into its input on every
+   redraw, even an unchanged one, so a bound box would lose what is being typed.
+   Each row is its own component because v-once inside a v-for shares one copy
+   across every row. */
+const CustomRow = {
+  props: {cid: String, item: Object, p: Number},
+  emits: ['changed', 'remove'],
+  template: `
+    <div class="custom-item" :id="cid + '-custom-item-' + item.id">
+      <div class="custom-row">
+        <input v-once type="text" :id="cid + '-custom-label-' + item.id" :value="item.label" placeholder="Name (e.g. Mounts)" @input="$emit('changed')">
+        <input v-once type="text" :id="cid + '-custom-cur-' + item.id" :value="item.current" style="text-align:right" @input="$emit('changed')">
+        <span class="slash">/</span>
+        <input v-once type="text" :id="cid + '-custom-total-' + item.id" :value="item.total" style="text-align:right" @input="$emit('changed')">
+        <span class="pct">{{ p.toFixed(1) }}%</span>
+        <button class="remove-btn" title="Remove this tracker" @click="$emit('remove')">×</button>
+      </div>
+      <div class="bar-track"><div class="bar-fill" :style="{width: Math.min(p, 100) + '%'}"></div></div>
+    </div>`
+};
+const CustomList = {
+  components: {CustomRow},
+  props: ['state'],
+  setup(props){
+    // Empty until renderCustom has set state.cid: boxState mounts before it returns.
+    const list = () => (getChar(props.state.cid) || {custom: []}).custom;
+    const rows = Vue.computed(() => {
+      props.state.tick;
+      return list().map(i => ({id: i.id, label: i.label, current: i.current, total: i.total}));
+    });
+    const p = id => {
+      props.state.typed;
+      const i = list().find(x => x.id === id);
+      return i ? pct(i.current, i.total) : 0;
+    };
+    return {rows, p, changed: id => onCustomInput(props.state.cid, id), remove: id => removeCustomRow(props.state.cid, id)};
+  },
+  template: `
+    <div v-if="!rows.length" class="empty-hint">Nothing yet — add achievements, mounts, minions, hunting log, or anything else worth counting.</div>
+    <custom-row v-for="item in rows" :key="item.id + ':' + state.tick" :cid="state.cid" :item="item" :p="p(item.id)"
+                @changed="changed(item.id)" @remove="remove(item.id)"></custom-row>`
+};
+function renderCustom(cid){
+  const state = boxState(cid+'-custom', CustomList);
+  if(!state) return;
+  Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+  Vue.nextTick(() => applyFrames(cid, 'notes'));
+  refreshNav(cid);
+}
+function addCustomRow(cid){
+  collectAllInputs();
+  const item = { id:newId(), label:'', current:0, total:100 };
+  getChar(cid).custom.push(item);
+  renderCustom(cid);
+  Vue.nextTick(() => {
+    const labelEl = document.getElementById(`${cid}-custom-label-${item.id}`);
+    if(labelEl) labelEl.focus();
+  });
+  scheduleSave();
+}
+function removeCustomRow(cid, id){
+  collectAllInputs();
+  const c = getChar(cid);
+  const item = c.custom.find(i=>i.id===id);
+  if(item && ((item.label||'').trim() || item.current)){
+    const name = (item.label||'').trim() || 'this tracker';
+    if(!confirm(`Remove "${name}"?`)) return;
+  }
+  c.custom = c.custom.filter(i=>i.id!==id);
+  renderCustom(cid);
+  scheduleSave();
+}
+function onCustomInput(cid, id){
+  collectAllInputs();
+  const state = boxState(cid+'-custom', CustomList);
+  if(state) state.typed = (state.typed || 0) + 1;
+  scheduleSave();
+}
+
+/* ---------- routines (per character) ----------
+   Drawn by Vue (boxState), with the same two counters as the custom trackers and the
+   job tables. renderRoutines bumps state.tick: a new snapshot of sections and rows,
+   every row made again. refreshRoutines bumps state.beat: ticks, due times, locks and
+   the client checkboxes redraw from the live data. It runs every 30 seconds and after
+   every tick or edit. The label and patch inputs are v-once and keep their ids for
+   collectCharInputs. The row's `item` is the routine itself: what the row shows of it
+   besides the live parts (hidden, infoOpen, schedule) only changes with a full render. */
+function routineLive(c){
+  const now = new Date(), out = {};
+  c.routines.forEach(item=>{
+    const lock = routineLock(item, c);
+    const gated = lock !== null;
+    const ms = nextResetInstant(schedById(item.schedId), now, item.lastDone) - now.getTime();
+    const finished = routineFinished(item, c);
+    out[item.id] = {done: !gated && isRoutineDone(item, now), gated, need: lock ? lock.need : null,
+                    due: fmtDue(ms), soon: !gated && ms < 3600000, optional: finished ? finished.label : null};
+  });
+  return out;
+}
+const RoutineRow = {
+  props: {cid: String, item: Object, live: Object, clients: Object},
+  setup(props){
+    const chList = challengeList(props.item);
+    return {chList, chTip: chList.map(([name,desc])=>`${name} — ${desc}`).join('\n'),
+      schedules: RESET_SCHEDULES, clientList: CUSTOM_DELIVERY_CLIENTS,
+      toggleRoutine, onRoutineInput, onRoutineSchedChange, toggleRoutineHidden, removeRoutine, toggleChallengeInfo, toggleCustomClient};
+  },
+  template: `
+    <div class="routine-item" :class="{done: live.done, gated: live.gated, 'user-hidden': item.hidden}" :id="cid + '-rt-item-' + item.id">
+      <input type="checkbox" :id="cid + '-rt-chk-' + item.id" :checked="live.done" :disabled="live.gated" @change="toggleRoutine(cid, item.id)">
+      <span v-if="live.optional" class="routine-label routine-optional" :title="item.label">{{ live.optional }}</span>
+      <input v-else v-once type="text" class="routine-label" :id="cid + '-rt-label-' + item.id" :value="item.label" placeholder="e.g. Ixali dailies" @input="onRoutineInput(cid, item.id)">
+      <select :id="cid + '-rt-sched-' + item.id" :value="item.schedId" @change="onRoutineSchedChange(cid, item.id)"><option v-for="s in schedules" :key="s.id" :value="s.id">{{ s.label }}</option></select>
+      <input v-once type="text" class="routine-req" :id="cid + '-rt-req-' + item.id" :value="item.requires || ''" placeholder="any" title="Patch this unlocks in — blank means always available" @input="onRoutineInput(cid, item.id)">
+      <span class="routine-due" :class="{soon: live.soon}" :id="cid + '-rt-due-' + item.id" :title="live.need ? 'needs ' + live.need : null">{{ live.gated ? 'locked' : live.due }}</span>
+      <button v-if="chList.length" class="hide-btn" :title="chTip" @click="toggleChallengeInfo(cid, item.id)">{{ item.infoOpen ? '▾' : 'ⓘ' }}</button>
+      <button v-if="item.seedKey === 'custom-deliveries'" class="hide-btn" :title="'Custom Delivery clients: ' + clients.count + ' of ' + clientList.length + ' unlocked'" @click="toggleChallengeInfo(cid, item.id)">{{ item.infoOpen ? '▾' : 'ⓘ' }}</button>
+      <button class="hide-btn" :class="{'is-hidden': item.hidden}" :id="cid + '-rt-hidebtn-' + item.id" :title="item.hidden ? 'Unhide this routine' : 'Hide — doesn\\'t apply to this character'" @click="toggleRoutineHidden(cid, item.id)">{{ item.hidden ? '◉' : '○' }}</button>
+      <button class="remove-btn" title="Remove this routine" @click="removeRoutine(cid, item.id)">×</button>
+    </div>
+    <div v-if="chList.length && item.infoOpen" class="jq-panel"><div v-for="([name, desc], i) in chList" :key="i" class="jq-row"><span class="qname">{{ name }}</span> <span class="hint">{{ desc }}</span></div></div>
+    <div v-if="item.seedKey === 'custom-deliveries' && item.infoOpen" class="jq-panel">
+      <div v-for="k in clientList" :key="k.id" class="jq-item" :class="{future: !clients.on[k.id]}">
+        <input type="checkbox" :id="cid + '-cd-' + k.id" :checked="!!clients.on[k.id]" @change="toggleCustomClient(cid, k.id)">
+        <span class="jq-level">Lv.{{ k.lvl }}</span>
+        <span class="jq-name">{{ k.name }} <span class="jq-shared-tag">{{ k.exp }}</span>
+          <span class="hint">{{ k.steps.join(' → ') }}{{ k.note ? ' · ' + k.note : '' }}</span></span>
+      </div>
+    </div>`
+};
+// Custom Delivery clients, ticked once their unlock quests are done. Reuses the row's
+// `infoOpen` flag and toggleChallengeInfo, which only flips the flag and re-renders.
+// `lvl` is the delivery level the wiki gives; `steps` are the quests, in order.
+const CUSTOM_DELIVERY_CLIENTS = [
+  {id:'zhloe',    exp:'Stormblood',    lvl:60, name:'Zhloe Aliapoh (Idyllshire)',
+   steps:['Inscrutable Tastes — Morgayne, Foundation, Ishgard (every other client needs this)','Go West, Craftsman — Lydirlona, Mor Dhona (22.3, 6.8)','Arms Wide Open — Geimlona, Idyllshire (5.8, 6.9)']},
+  {id:'mnaago',   exp:'Stormblood',    lvl:60, name:"M'naago (Rhalgr's Reach)",
+   steps:["None Forgotten, None Forsaken — Galiena, Rhalgr's Reach (9.8, 12.5)"]},
+  {id:'kurenai',  exp:'Stormblood',    lvl:62, name:'Kurenai (Tamamizu, the Ruby Sea)',
+   steps:['The Two Princesses of Sui-no-Sato (level 63) — Kurenai, Ruby Sea (21.2, 19.8); after The Elixir of Life','The Seaweed Is Always Greener (level 62) — Kojin Hireling, Kugane (10.1, 9.9)'],
+   note:'The prerequisite quest is level 63. A level 63 Culinarian, or another class at level 63 or higher, may be needed to accept it.'},
+  {id:'adkiragh', exp:'Stormblood',    lvl:66, name:'Adkiragh (Idyllshire)',
+   steps:['Between a Rock and the Hard Place — Geimlona, Idyllshire (5.7, 6.9); after Arms Wide Open']},
+  {id:'kaishirr', exp:'Shadowbringers', lvl:70, name:'Kai-Shirr (Eulmore)',
+   steps:['The Boutique Always Wins — Mowen, Eulmore (11.4, 10.7); one conversation completes it','Oh, Beehive Yourself — Kai-Shirr, Eulmore (11.7, 11.7)']},
+  {id:'ehlltou',  exp:'Shadowbringers', lvl:70, name:'Ehll Tou (the Firmament)',
+   steps:['O Crafter, My Crafter — Ehll Tou, the Firmament (13.5, 11.2); needs Ishgardian Restoration quest If Songs Had Wings']},
+  {id:'charlemend', exp:'Shadowbringers', lvl:70, name:'Count Charlemend (the Firmament)',
+   steps:['You Can Count on It — Francel, the Firmament (11.0, 14.5); needs Ishgardian Restoration quests Smiles Cross the Sky and The Brume Lifts']},
+  {id:'ameliance',exp:'Endwalker',     lvl:80, name:'Ameliance (Old Sharlayan)',
+   steps:['Of Mothers and Merchants — Well-dressed Attendant, Old Sharlayan (12.6, 9.7)']},
+  {id:'anden',    exp:'Endwalker',     lvl:80, name:'Anden (the Crystarium)',
+   steps:["That's So Anden — Supplicant Sheep, the Crystarium (9.3, 11.3)"]},
+  {id:'margrat',  exp:'Endwalker',     lvl:80, name:'Margrat (Labyrinthos)',
+   steps:["A Request of One's Own — Theopauldin, Old Sharlayan (13.8, 15.0)"]},
+  {id:'nitowikwe',exp:'Dawntrail',     lvl:90, name:'Nitowikwe (Shaaloani)',
+   steps:['Laying New Tracks — Railroad Employee, Tuliyollal (14.1, 12.1)']},
+  {id:'tiisolja', exp:'Dawntrail',     lvl:90, name:'Tiisol Ja (Tuliyollal)',
+   steps:['Taco Time — Hhuki, Tuliyollal (13.7, 12.1)']}
+];
+function toggleCustomClient(cid, id){
+  const c = getChar(cid);
+  const chk = document.getElementById(`${cid}-cd-${id}`);
+  if(!chk) return;
+  c.customClients[id] = chk.checked;
+  // The row's ⓘ tooltip carries the count; the redraw updates it with the panel.
+  refreshRoutines(cid);
+  scheduleSave();
+}
+// The info button, on Challenge Log rows only. A category name is not self-explanatory —
+// "Battles" gives no hint that the guildhest challenges live there — so the button carries
+// the list. Two ways in on purpose: the native tooltip is instant on a mouse, and the click
+// panel is the only one that works on a touchscreen, where `title` never fires.
+function challengeList(item){ return CHALLENGE_LOG[item.seedKey] || []; }
+function toggleChallengeInfo(cid, id){
+  const c = getChar(cid);
+  const item = c.routines.find(r=>r.id===id);
+  if(!item) return;
+  item.infoOpen = !item.infoOpen;
+  renderRoutines(cid);
+  scheduleSave();
+}
+function challengeRowsExist(c){ return c.routines.some(isChallengeRow); }
+// Switched off, the whole section collapses to its heading. This is deliberately NOT the
+// per-row hide button: hiding thirteen rows one at a time and then unhiding them again is
+// the tedium this switch exists to remove, and it leaves `hidden` free to still mean "this
+// row in particular doesn't apply to me".
+// It lives on DATA.ui, not on the character. "I don't do the Challenge Log" is a fact about
+// the person, not about one alt — per-character meant flipping the same switch three times
+// and getting it wrong on the fourth. Absent means shown, so nobody has to be migrated.
+function challengeLogOn(){ return !(DATA.ui && DATA.ui.challengeLogOff); }
+function toggleChallengeLog(cid){
+  if(!DATA.ui) DATA.ui = {};
+  DATA.ui.challengeLogOff = challengeLogOn();
+  renderRoutines(cid);
+  scheduleSave();
+}
+/* The sections and rows to draw, as of a full render. */
+function routineSnapshot(c){
+  const all = c.routines;
+  const visible = all.filter(r =>
+    (c.showGated || !isLocked(r, c)) && (c.showHidden || !r.hidden)
+  );
+  if(!visible.length) return {empty: all.length ? 'Everything here is hidden or needs a later patch.'
+    : 'Nothing yet — add the things you repeat, like Ixali dailies or GC supply missions.'};
+  const on = challengeLogOn();
+  return {sections: ROUTINE_SECTIONS.map(sec=>{
+    const items = visible.filter(r => routineSection(r) === sec);
+    // The Challenge Log heading stays put when switched off, or the switch would vanish
+    // with the thing it controls and there'd be no way back. Every other section is only
+    // drawn when it has rows.
+    const challenge = sec === CHALLENGE_SECTION;
+    if(!items.length && !(challenge && challengeRowsExist(c))) return null;
+    const s = {sec, frame: frameSlug(sec), challenge, on, collapsed: challenge && !on};
+    if(sec === 'Daily' || sec === 'Weekly') s.groups = routineGroups(items); else s.items = items;
+    return s;
+  }).filter(Boolean)};
+}
+const RoutineList = {
+  components: {RoutineRow, HuntCompact},
+  props: ['state'],
+  setup(props){
+    const char = () => getChar(props.state.cid);
+    const snap = Vue.computed(() => { props.state.tick; const c = char(); return c ? routineSnapshot(c) : null; });
+    const live = Vue.computed(() => { props.state.tick; props.state.beat; const c = char(); return c ? routineLive(c) : {}; });
+    const clients = Vue.computed(() => {
+      props.state.tick; props.state.beat;
+      const on = {...((char() || {}).customClients || {})};
+      return {on, count: CUSTOM_DELIVERY_CLIENTS.filter(k => on[k.id]).length};
+    });
+    return {snap, live, clients, toggleChallengeLog, toggleHuntRows};
+  },
+  template: `
+    <div v-if="snap && snap.empty" class="empty-hint">{{ snap.empty }}</div>
+    <template v-else-if="snap">
+      <div v-for="s in snap.sections" :key="s.sec + ':' + state.tick" class="routine-section" :data-frame="s.frame">
+        <div v-if="s.challenge" class="subhead with-toggle">{{ s.sec }}<button class="section-toggle" :class="{'is-off': !s.on}" :title="s.on ? 'Hide the Challenge Log for every character' : 'Show the Challenge Log again'" @click="toggleChallengeLog(state.cid)">{{ s.on ? '● on' : '○ off' }}</button></div>
+        <div v-else class="subhead">{{ s.sec }}</div>
+        <template v-if="s.collapsed"></template>
+        <template v-else-if="s.groups">
+          <div v-for="g in s.groups" :key="g.name" class="routine-subgroup">
+            <div class="routine-subhead">{{ g.name }} <span style="opacity:.6">{{ g.count }}</span></div>
+            <hunt-compact v-if="g.compact" :cid="state.cid" :which="g.compact" :items="g.items" :beat="state.beat || 0"></hunt-compact>
+            <template v-else><routine-row v-for="item in g.items" :key="item.id" :cid="state.cid" :item="item" :live="live[item.id]" :clients="clients"></routine-row></template>
+            <div v-if="g.set" class="opt-switch">
+              <span class="sw" :class="{on: g.rowsOn}" role="switch" tabindex="0" :aria-checked="String(g.rowsOn)" @click="toggleHuntRows()"></span>
+              <label @click="toggleHuntRows()">Give each expansion its own row{{ g.rowsOn ? '' : ' — ' + g.items.length + ' rows instead of 1' }}</label>
+            </div>
+          </div>
+        </template>
+        <template v-else><routine-row v-for="item in s.items" :key="item.id" :cid="state.cid" :item="item" :live="live[item.id]" :clients="clients"></routine-row></template>
+      </div>
+    </template>`
+};
+function renderRoutines(cid){
+  if(!document.getElementById(cid+'-routines')) return;
+  const c = getChar(cid);
+  const patchEl = document.getElementById(cid+'-patch');
+  if(patchEl && patchEl.value !== (c.patch||'')) patchEl.value = c.patch || '';
+  const state = boxState(cid+'-routines', RoutineList);
+  Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+  renderGatedNote(cid);
+  renderHiddenNote(cid);
+  Vue.nextTick(() => applyFrames(cid, 'routines'));
+  refreshNav(cid);
+}
+function renderGatedNote(cid){
+  const c = getChar(cid);
+  const locks = c.routines.map(r=>routineLock(r, c)).filter(Boolean);
+  if(!locks.length && !c.showGated){ drawNote(cid+'-gated', ''); return; }
+  // Both reasons share one note and one toggle, unlike the user-hidden note below: "you
+  // can't do this yet" is a single idea to the reader, whichever half of the data says so.
+  // The reasons are still named, because "reach 7.0" and "level a crafter" are different
+  // things to go and do.
+  const byPatch  = locks.filter(l=>l.reason==='patch').length;
+  const byJob    = locks.filter(l=>l.reason==='job').length;
+  const byUnlock = locks.filter(l=>l.reason==='unlock').length;
+  const byLevel  = locks.filter(l=>l.reason==='level').length;
+  // Sort on the parsed number, display the string the player typed — patchValue('6.0') is
+  // the float 6, which renders as "next at 6" and reads like a different patch entirely.
+  const next = c.routines.filter(r=>isGated(r, gatePatchFor(r, c)))
+    .map(r=>({ n:patchValue(r.requires), s:r.requires }))
+    .filter(x=>x.n!==null).sort((a,b)=>a.n-b.n)[0];
+  const reasons = [];
+  if(byUnlock) reasons.push('unlocking in game');
+  if(byPatch) reasons.push(`a later patch${next?` (next at ${next.s})`:''}`);
+  if(byLevel) reasons.push('a higher level');
+  if(byJob) reasons.push(`a job you don't have`);
+  const label = locks.length
+    ? `${locks.length} hidden — ${locks.length===1?'needs':'need'} ${reasons.join(' or ')}`
+    : 'showing locked routines';
+  drawNote(cid+'-gated', label, c.showGated?'hide them':'show them', () => toggleShowGated(cid));
+}
+// Separate from the patch-gated note on purpose — "locked until a patch" and "hidden
+// because you chose to" are different reasons a routine isn't showing, and conflating them
+// would make it unclear which toggle would bring a given one back.
+function renderHiddenNote(cid){
+  const c = getChar(cid);
+  const hidden = c.routines.filter(r=>r.hidden);
+  if(!hidden.length && !c.showHidden){ drawNote(cid+'-hiddennote', ''); return; }
+  const label = hidden.length
+    ? `${hidden.length} hidden by you — ${hidden.length===1?"doesn't":"don't"} apply to this character`
+    : 'showing routines you hid';
+  drawNote(cid+'-hiddennote', label, c.showHidden?'hide them':'show them', () => toggleShowHidden(cid));
+}
+function toggleShowGated(cid){
+  collectAllInputs();
+  const c = getChar(cid);
+  c.showGated = !c.showGated;
+  renderRoutines(cid);
+  scheduleSave();
+}
+function toggleShowHidden(cid){
+  collectAllInputs();
+  const c = getChar(cid);
+  c.showHidden = !c.showHidden;
+  renderRoutines(cid);
+  scheduleSave();
+}
+function toggleRoutineHidden(cid, id){
+  collectAllInputs();
+  const c = getChar(cid);
+  const item = c.routines.find(r=>r.id===id);
+  if(!item) return;
+  item.hidden = !item.hidden;
+  // Un-hiding while "show hidden" is off would leave it invisible right after the click
+  // that was supposed to bring it back — a full re-render keeps the visible set honest.
+  renderRoutines(cid);
+  scheduleSave();
+}
+function onPatchInput(cid){
+  const el = document.getElementById(cid+'-patch');
+  const c = getChar(cid);
+  if(el) c.patch = el.value.trim();
+  renderRoutines(cid);
+  renderSocieties(cid);
+  scheduleSave();
+}
+// Scoped to routines only — everything else tracked for this character (name, job levels,
+// quest categories, societies, notes, custom trackers) is untouched.
+function resetRoutines(cid){
+  const c = getChar(cid);
+  const label = (c.name||'').trim() || 'this character';
+  if(!confirm(`Reset all routines for ${label} back to the default list?\n\nThis removes anything you've added, renamed, hidden, rescheduled, or marked done in Routines. Nothing else you track for this character is affected, and the character itself is not removed.`)) return;
+  c.routines = seedRoutines();
+  renderRoutines(cid);
+  scheduleSave();
+}
+function addRoutine(cid){
+  collectAllInputs();
+  const item = { id:newId(), label:'', schedId:'daily15', lastDone:null, requires:'' };
+  getChar(cid).routines.push(item);
+  // Full re-render (rather than appending in place) so the new item lands under its
+  // correct Daily/Weekly/Monthly/Other section instead of always at the very bottom.
+  renderRoutines(cid);
+  Vue.nextTick(() => {
+    const labelEl = document.getElementById(`${cid}-rt-label-${item.id}`);
+    if(labelEl) labelEl.focus();
+  });
+  scheduleSave();
+}
+function removeRoutine(cid, id){
+  collectAllInputs();
+  const c = getChar(cid);
+  const item = c.routines.find(i=>i.id===id);
+  if(item && (item.label||'').trim()){
+    if(!confirm(`Remove "${item.label.trim()}"?`)) return;
+  }
+  c.routines = c.routines.filter(i=>i.id!==id);
+  // A full render takes an emptied (sub)section's heading with it, not leaving an empty
+  // "Weekly" or "Relic Weapons" label sitting above nothing.
+  renderRoutines(cid);
+  scheduleSave();
+}
+function toggleRoutine(cid, id){
+  const item = getChar(cid).routines.find(i=>i.id===id);
+  const chk = document.getElementById(`${cid}-rt-chk-${id}`);
+  if(!item || !chk) return;
+  item.lastDone = chk.checked ? Date.now() : null;
+  // Recompute the due countdown immediately — otherwise it's stuck showing whatever it read
+  // before the click (e.g. "now") until the next 30s periodic refresh or a page reload.
+  refreshRoutines(cid);
+  // A tick is exactly what these two read: the rail's countdown watches for a
+  // ticked routine waiting on a reset, and the record lists when each was
+  // ticked. Without this they stay stale until the next reload.
+  renderLastCompleted(cid);
+  applyFrames(cid, 'routines');
+  renderFrameRow();
+  updateResetBar();
+  scheduleSave();
+}
+// A schedule change can move an item into a different Daily/Weekly/Monthly/Other section
+// (unlike label/requires edits), so this needs a full re-render — same reasoning as
+// onSocietyRankChange vs. onSocietyPointsInput.
+function onRoutineSchedChange(cid, id){
+  collectAllInputs();
+  renderRoutines(cid);
+  scheduleSave();
+}
+function onRoutineInput(cid, id){
+  collectAllInputs();
+  // A typed patch can lock or unlock the row; the redraw shows it.
+  refreshRoutines(cid);
+  renderGatedNote(cid);
+  scheduleSave();
+}
+// Ticks, due times and locks from the live data: every 30 seconds and after every tick.
+function refreshRoutines(cid){
+  const state = boxState(cid+'-routines', RoutineList);
+  if(state) state.beat = (state.beat || 0) + 1;
+}
+
+/* ---------- server picker (PDC -> LDC -> World) ---------- */
+// Selects rebuild in full on every change — unlike text inputs, a <select> has no
+// mid-interaction typing state a rebuild could destroy, so this doesn't need the
+// focus-safe split-render treatment the rest of the app uses.
+/* Region / Data Center / World, drawn by Vue (boxState). onServerChange writes the
+   choice and clears the levels under it, then renderServerPicker bumps state.tick.
+   The selects show the saved data, so binding their value is safe here. */
+const ServerPicker = {
+  props: ['state'],
+  setup(props){
+    const view = Vue.computed(() => {
+      props.state.tick;
+      const c = getChar(props.state.cid);
+      if(!c) return null;
+      const s = c.server;
+      return {
+        levels: [
+          ['pdc', 'Region', Object.keys(SERVER_DATA), s.pdc, false],
+          ['ldc', 'Data Center', s.pdc ? Object.keys(SERVER_DATA[s.pdc]||{}) : [], s.ldc, !s.pdc],
+          ['world', 'World', (s.pdc && s.ldc) ? ((SERVER_DATA[s.pdc]||{})[s.ldc]||[]) : [], s.world, !s.ldc]
+        ].map(([level, placeholder, list, value, disabled]) => ({level, placeholder, list, value: value || '', disabled}))
+      };
+    });
+    return {view, change: level => onServerChange(props.state.cid, level)};
+  },
+  template: `
+    <template v-if="view">
+      <span class="sp-label">Server</span>
+      <template v-for="(l, i) in view.levels" :key="l.level">
+        <span v-if="i" class="sp-sep">/</span>
+        <select :id="state.cid + '-server-' + l.level" :value="l.value" :disabled="l.disabled" @change="change(l.level)">
+          <option value="">{{ l.placeholder }}</option>
+          <option v-for="v in l.list" :key="v" :value="v">{{ v }}</option>
+        </select>
+      </template>
+    </template>`
+};
+function renderServerPicker(cid){
+  const state = boxState(cid+'-server-picker', ServerPicker);
+  if(state) Object.assign(state, {cid, tick: (state.tick || 0) + 1});
+}
+function onServerChange(cid, level){
+  const c = getChar(cid);
+  if(level==='pdc'){
+    c.server.pdc = document.getElementById(`${cid}-server-pdc`).value;
+    c.server.ldc = ''; c.server.world = '';
+  }else if(level==='ldc'){
+    c.server.ldc = document.getElementById(`${cid}-server-ldc`).value;
+    c.server.world = '';
+  }else{
+    c.server.world = document.getElementById(`${cid}-server-world`).value;
+  }
+  renderServerPicker(cid);
+  scheduleSave();
+}
+
+/* ---------- full render / input handlers (per character) ---------- */
+function renderChar(cid){
+  const c = getChar(cid);
+  document.getElementById(cid+'-name').value = c.name;
+  document.getElementById(cid+'-duty').value = c.duty;
+  document.getElementById(cid+'-comm').value = c.comm;
+  document.getElementById(cid+'-trade-collected').value = c.tradeCollected;
+  document.getElementById(cid+'-trade-made').value = c.tradeMade;
+  document.getElementById(cid+'-playtime-days').value = c.playtime.days;
+  document.getElementById(cid+'-playtime-hours').value = c.playtime.hours;
+  document.getElementById(cid+'-notes').value = c.notes;
+  updatePlaytimeTotal(cid);
+  renderServerPicker(cid);
+  renderCharDash(cid);
+  renderRoles(cid);
+  updateTradeMentorChecks(cid);
+  renderPluginMode(cid);
+  renderQuestsTable(cid);
+  updateOverallCheck(cid);
+  renderJobTables(cid);
+  renderSocieties(cid);
+  renderHunts(cid);
+  renderCosmic(cid);
+  renderCollections(cid);
+  renderJourney(cid);
+  renderEvents(cid);
+  renderRedAlerts(cid);
+  renderRoutines(cid);
+  renderCustom(cid);
+  renderTmSyncNote(cid);
+  renderLastCompleted(cid);
+  // The renderers above draw new elements, which come without the frame
+  // classes. Settle them again for each section of this character.
+  RAIL_SECTIONS.forEach(s => applyFrames(cid, s.key));
+  if(DATA.activeId === cid) renderNav();
+}
+function onNameInput(cid){
+  collectAllInputs();
+  renderSwitcher();
+  scheduleSave();
+}
+function onMainInput(cid){
+  collectAllInputs();
+  renderCharDash(cid);
+  renderRoles(cid);
+  updateTradeMentorChecks(cid);
+  updateQuestPercents(cid);
+  updateOverallCheck(cid);
+  updateMsqCheckNote(cid);
+  updateJobCaps(cid);
+  scheduleSave();
+}
+function onPlaytimeInput(cid){
+  collectAllInputs();
+  updatePlaytimeTotal(cid);
+  scheduleSave();
+}
+
+/* ---------- collapsible sections ---------- */
+function sectionKey(sec){
+  const page = sec.closest('.page');
+  const h2 = sec.querySelector('h2');
+  const slug = (h2 ? h2.textContent : '').trim().toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).slice(0,3).join('-');
+  return (page ? page.id : 'page') + ':' + slug;
+}
+function initCollapsible(){
+  document.querySelectorAll('.section').forEach(sec=>{
+    const h2 = sec.querySelector('h2');
+    if(!h2 || sec.dataset.collapsibleReady) return;
+    sec.dataset.collapsibleReady = '1';
+    const key = sectionKey(sec);
+    sec.dataset.secKey = key;
+    const body = document.createElement('div');
+    body.className = 'sec-body';
+    let node = h2.nextSibling;
+    while(node){ const next = node.nextSibling; body.appendChild(node); node = next; }
+    sec.appendChild(body);
+    const btn = document.createElement('button');
+    btn.className = 'sec-toggle'; btn.type = 'button'; btn.title = 'Collapse or expand';
+    btn.onclick = ()=>toggleSection(key);
+    h2.appendChild(btn);
+    applyCollapsed(sec, !!DATA.ui.collapsed[key]);
+  });
+}
+function applyCollapsed(sec, collapsed){
+  sec.classList.toggle('collapsed', collapsed);
+  const btn = sec.querySelector('.sec-toggle');
+  if(btn) btn.textContent = collapsed ? '+' : '−';
+}
+function toggleSection(key){
+  const sec = document.querySelector(`.section[data-sec-key="${key}"]`);
+  if(!sec) return;
+  const collapsed = !sec.classList.contains('collapsed');
+  DATA.ui.collapsed[key] = collapsed;
+  applyCollapsed(sec, collapsed);
+  scheduleSave();
+}
+
+/* ---------- instructions ---------- */
+function toggleInstructions(){
+  showGlobalPage(panelOpen('instructions-panel') ? null : 'instructions-panel');
+}
+
+/* ---------- backup ---------- */
+function exportData(){
+  collectAllInputs();
+  const payload = { app:'adventurers-ledger-fc', version:1, exported:new Date().toISOString(), chars:DATA.chars, ui:DATA.ui };
+  const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const d = new Date();
+  const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const a = document.createElement('a');
+  a.href = url; a.download = `pandora-lunar-ledger-${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  document.getElementById('save-status').textContent = 'Backup downloaded';
+}
+function importData(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const parsed = JSON.parse(e.target.result);
+      if(!parsed || typeof parsed!=='object' || !Array.isArray(parsed.chars)){
+        throw new Error('No character data found in that file.');
+      }
+      const when = parsed.exported ? new Date(parsed.exported).toLocaleString() : 'unknown date';
+      if(!confirm(`Replace ALL current tracker data with this backup?\n\nBackup taken: ${when}\n\nThis overwrites everything in this browser and cannot be undone.`)){
+        input.value = ''; return;
+      }
+      DATA = { chars: parsed.chars, activeId: (parsed.chars[0]||{}).id, ui: parsed.ui || {} };
+      normalizeData();
+      document.querySelectorAll('.section[data-collapsible-ready]').forEach(s=>delete s.dataset.collapsibleReady);
+      rebuildPages();
+      renderSwitcher();
+      updateSoundToggleUI();
+      save();
+      document.getElementById('save-status').textContent = 'Backup restored';
+    }catch(err){
+      alert('That file could not be read as a ledger backup.\n\n' + err.message);
+    }
+    input.value = '';
+  };
+  reader.onerror = function(){ alert('Could not read that file.'); input.value=''; };
+  reader.readAsText(file);
+}
+
+/* ---------- Time Memoria import ---------- */
+// One-way plugin -> ledger, clipboard only. Never auto-matched to a character (the plugin
+// reports the in-game name, e.g. "Haurche Greystone", which won't generally match whatever
+// the ledger has typed in, e.g. "Haurchefaunt Greystone") and never creates a new character —
+// linking is always an explicit choice from the characters already in this browser. Every
+// field is merge-only: only keys actually present in the payload are touched, everything
+// else (routines, notes, ids, ...) is left alone.
+let tmImportPayload = null;
+/* Set by a merge. Closing the dialog then saves and reloads the page, so every
+   part of it (the rail rotator included) starts from the imported data. Not at
+   the merge itself: the dialog stays open on what changed, to be read first. */
+let tmReloadOnClose = false;
+
+/* The import is a modal dialog. Esc closes it too, so the reset runs on the
+   dialog's own close event rather than only in this function. */
+function toggleTmImportPanel(){
+  const dlg = document.getElementById('tm-import-panel');
+  if(dlg.open){ dlg.close(); return; }
+  if(!dlg.dataset.wired){
+    dlg.addEventListener('close', resetTmImport);
+    dlg.dataset.wired = '1';
+  }
+  dlg.showModal();
+  document.getElementById('tm-import-text').focus();
+}
+function resetTmImport(){
+  tmImportPayload = null;
+  document.getElementById('tm-import-text').value = '';
+  document.getElementById('tm-import-error').textContent = '';
+  tmSummaryState().mode = '';
+  if(tmReloadOnClose){
+    tmReloadOnClose = false;
+    // Save now rather than after the usual half-second wait, which the reload
+    // would cut short. save() writes localStorage synchronously.
+    clearTimeout(saveTimer);
+    save();
+    location.reload();
+  }else if(otherTabSaved){
+    location.reload();
+  }
+}
+function tmPasteFromClipboard(){
+  const errEl = document.getElementById('tm-import-error');
+  if(!navigator.clipboard || !navigator.clipboard.readText){
+    errEl.textContent = "Clipboard access isn't available here — paste manually into the box below (Ctrl+V).";
+    return;
+  }
+  navigator.clipboard.readText().then(text=>{
+    document.getElementById('tm-import-text').value = text;
+    onTmPasteInput();
+  }).catch(()=>{
+    errEl.textContent = 'Clipboard permission denied — paste manually into the box below (Ctrl+V).';
+  });
+}
+// Society names by id, as fmt 1 exports spelled them. The plugin's own names,
+// not the game sheet's ("Sylphic", not "sylphs").
+const TM_SOCIETY_NAMES = ['', "Amalj'aa", 'Sylphic', 'Kobold', 'Sahagin', 'Ixali', 'Vanu', 'Vath',
+  'Moogle', 'Kojin', 'Ananta', 'Namazu', 'Pixie', 'Qitari', 'Dwarf', 'Arkasodara', 'Omicron',
+  'Loporrit', 'Pelupelu', 'Mamool Ja', 'Yok Huy'];
+
+// Time Memoria fmt 2 is the compact export: job abbreviations, quest ids, arrays in place of
+// repeated keys, 1/0 for flags. Everything past this point was written for fmt 1, so fmt 2 is
+// turned back into fmt 1 here and nowhere else. An export without "fmt" is fmt 1 and passes
+// through untouched. Lookups come from tm-export-tables.js; an id or abbreviation it does not
+// know keeps its raw value rather than being dropped, except quest ids, which have no title to
+// match on without the table.
+function tmNormalizeExport(p){
+  if(!p || typeof p !== 'object' || p.fmt !== 2) return p;
+  const out = Object.assign({}, p);
+  const jobName = abbr => TM_JOB_NAMES[abbr] || abbr;
+  const renameJobs = block => {
+    if(!block || typeof block !== 'object') return block;
+    const named = {};
+    Object.keys(block).forEach(abbr => { named[jobName(abbr)] = block[abbr]; });
+    return named;
+  };
+
+  out.combat = renameJobs(p.combat);
+  out.craft = renameJobs(p.craft);
+  out.gather = renameJobs(p.gather);
+
+  if(p.societies && !Array.isArray(p.societies)){
+    out.societies = Object.keys(p.societies).map(Number).sort((a,b) => a - b).map(id => {
+      const [rank, points, needed] = p.societies[id];
+      return { id, name: TM_SOCIETY_NAMES[id] || `Society ${id}`, rank, points, needed };
+    });
+  }
+
+  if(Array.isArray(p.classQuests)){
+    const titles = new Set();
+    p.classQuests.forEach(q => {
+      const title = typeof q === 'number' ? TM_QUEST_TITLES[q] : q;
+      if(title) titles.add(title);
+    });
+    out.classQuests = [...titles];
+  }
+
+  if(p.unlocks && typeof p.unlocks === 'object'){
+    out.unlocks = {};
+    Object.keys(p.unlocks).forEach(k => { out.unlocks[k] = p.unlocks[k] === 1 || p.unlocks[k] === true; });
+  }
+
+  if(p.cosmicTools && p.cosmicTools.jobs){
+    const jobs = {};
+    Object.keys(p.cosmicTools.jobs).forEach(abbr => {
+      jobs[jobName(abbr)] = p.cosmicTools.jobs[abbr].map(t =>
+        Array.isArray(t) ? { type: t[0], current: t[1], needed: t[2], max: t[3] } : t);
+    });
+    out.cosmicTools = { asOf: p.cosmicTools.asOf, jobs };
+  }
+
+  return out;
+}
+function onTmPasteInput(){
+  const text = document.getElementById('tm-import-text').value.trim();
+  const errEl = document.getElementById('tm-import-error');
+  tmImportPayload = null;
+  tmSummaryState().mode = '';
+  if(!text){ errEl.textContent = ''; return; }
+  let obj;
+  try{ obj = tmNormalizeExport(JSON.parse(text)); }
+  catch(e){ errEl.textContent = 'Not valid JSON.'; return; }
+  if(!obj || typeof obj !== 'object' || obj.source !== 'time-memoria'){
+    errEl.textContent = 'Doesn’t look like a Tales of Milestones export (missing or unexpected "source" field).';
+    return;
+  }
+  if(typeof obj.name !== 'string' || !obj.name.trim()){
+    errEl.textContent = 'Export is missing a character name.';
+    return;
+  }
+  errEl.textContent = '';
+  tmImportPayload = obj;
+  renderTmImportSummary();
+}
+/* The summary under the paste box, one Vue app on #tm-import-summary. state.mode is ''
+   (nothing pasted, or not an export), 'pick' (choose a character, see the diff, apply)
+   or 'merged' (what the merge changed, and Close). state.rows is the diff, or null
+   before a character is picked. The target select keeps its id: applyTmImport reads it. */
+const TmDiff = {
+  props: {rows: Array},
+  template: `
+    <div v-if="!rows.length" class="tm-diff-row"><span class="tm-diff-label">No changes — this character already matches the export.</span></div>
+    <div v-for="(r, i) in rows" :key="i" class="tm-diff-row"><span class="tm-diff-label">{{ r[0] }}</span><span class="tm-diff-change">{{ r[1] }}<span class="tm-diff-arrow">→</span>{{ r[2] }}</span></div>`
+};
+const TmSummary = {
+  components: {TmDiff},
+  props: ['state'],
+  setup: () => ({onTmTargetChange, applyTmImport, toggleTmImportPanel}),
+  template: `
+    <template v-if="state.mode === 'pick'">
+      <div class="tm-import-meta">{{ state.meta }}</div>
+      <select class="tm-import-select" id="tm-import-target" :value="state.target" @change="onTmTargetChange()">
+        <option value="">— Link to which tracked character? —</option>
+        <option v-for="o in state.opts" :key="o.id" :value="o.id">{{ o.name }}</option>
+      </select>
+      <div id="tm-import-diff"><tm-diff v-if="state.rows" :rows="state.rows"></tm-diff></div>
+      <button class="edit-btn tm-import-apply-btn" id="tm-import-apply-btn" :disabled="!state.target" @click="applyTmImport()">Apply merge</button>
+    </template>
+    <template v-else-if="state.mode === 'merged'">
+      <div class="tm-import-meta">{{ state.meta }}</div>
+      <div id="tm-import-diff"><tm-diff :rows="state.rows"></tm-diff></div>
+      <button class="edit-btn tm-import-apply-btn" @click="toggleTmImportPanel()">Close</button>
+    </template>`
+};
+function tmSummaryState(){ return boxState('tm-import-summary', TmSummary); }
+function renderTmImportSummary(){
+  const state = tmSummaryState();
+  const p = tmImportPayload;
+  if(!p){ state.mode = ''; return; }
+  Object.assign(state, {
+    mode: 'pick', target: '', rows: null,
+    meta: `${p.name} · ${(p.server&&p.server.world)||'?'} — Tales of Milestones v${p.version||'?'}, exported ${fmtTmTimestamp(p.exported)}`,
+    opts: DATA.chars.map((c,i) => ({id: c.id, name: c.name || `Character ${i+1}`}))
+  });
+}
+function onTmTargetChange(){
+  const cid = document.getElementById('tm-import-target').value;
+  Object.assign(tmSummaryState(), {target: cid, rows: cid ? computeTmDiffRows(tmImportPayload, getChar(cid)) : null});
+}
+// Values already arrive pre-combined as level + (exp/expToNext), same convention the ledger's
+// own manual entry uses — this is purely a display formatter for the diff preview.
+function fmtTmJobVal(v){
+  if(v >= 100) return 'Lv 100 (max)';
+  const lvl = Math.floor(v);
+  const pct = Math.round((v - lvl) * 1000) / 10;
+  return `Lv ${lvl} (${pct.toFixed(1)}%)`;
+}
+// Class & job quests. The plugin sends a flat array of completed quest titles and nothing
+// else — it has no notion of which job this page files each one under, so the mapping is
+// done here from the lists this page already holds. Role quests fall out of the same pass
+// without being asked for: the game files them in the same category.
+//
+// Ticks only, never unticks. A title absent from the export means one of two things — not
+// done, or worded differently in one of the two places — and this page cannot tell those
+// apart. Ticking is right under either reading; unticking would silently erase hand-entered
+// history the first time a title was revised. The boxes stay clickable for everyone either
+// way, for the same reason the manual quest totals never went away.
+// Collectable counts, which the game keeps only inside an achievement — the plugin can
+// see them when the player has opened the Achievements window and not otherwise, so a
+// side it has never read is simply absent and must not be read as zero.
+//
+// Each carries the moment it was seen and whether it is exact; a count taken from an
+// already-completed tier is a floor, because a finished tier reports its requirement
+// rather than the running total.
+function tmReadCounts(p){
+  const src = (p.collectables && typeof p.collectables === 'object') ? p.collectables : {};
+  return [
+    ['tradeCollected', 'Collectables gathered', src.gathered],
+    ['tradeMade', 'Collectables synthesized', src.crafted],
+    ['duty', 'Duties completed', p.duties]
+  ].filter(([,,entry]) => entry && typeof entry.count === 'number');
+}
+// What a payload would actually change about the collectable counts. Shared by the
+// preview and the merge so the two cannot disagree.
+//
+// A re-read that returns the same number is still a change: the count is only as good
+// as the moment it was taken, so a fresher reading of the same figure is worth having
+// and worth showing. Conversely an older payload is ignored outright — pasting last
+// week's export must not age a reading backwards.
+function tmReadCountChanges(p, c){
+  return tmReadCounts(p).map(([key,label,entry])=>{
+    const storedAt = c[key+'AsOf'] ? Date.parse(c[key+'AsOf']) : null;
+    const incomingAt = entry.asOf ? Date.parse(entry.asOf) : null;
+    if(storedAt && incomingAt && incomingAt < storedAt) return null;
+
+    const countChanged = entry.count !== c[key];
+    const ageChanged = (entry.asOf || null) !== (c[key+'AsOf'] || null);
+    if(!countChanged && !ageChanged) return null;
+
+    return { key, label, entry, countChanged };
+  }).filter(Boolean);
+}
+
+// Cosmic tool research, cleaned to {asOf, jobs}. Null when the export has no block: an
+// older plugin build, or a character never read in a Cosmic Exploration zone.
+function tmCosmicReading(p){
+  const src = p.cosmicTools;
+  if(!src || typeof src !== 'object' || !src.jobs || typeof src.jobs !== 'object') return null;
+  const jobs = {};
+  Object.keys(src.jobs).forEach(job=>{
+    if(!Array.isArray(src.jobs[job])) return;
+    const types = src.jobs[job]
+      .filter(t => t && typeof t.type === 'number')
+      .map(t => ({type:t.type, current:num(t.current), needed:num(t.needed), max:num(t.max)}))
+      .sort((a,b) => a.type - b.type);
+    if(types.length) jobs[job] = types;
+  });
+  return { asOf: typeof src.asOf === 'string' ? src.asOf : null, jobs };
+}
+// The reading this payload would store, or null if it changes nothing. The block is one
+// full pass over every class, so it replaces the stored one whole rather than merging.
+// Same age rule as the collectable counts: an older reading never replaces a newer one.
+function tmCosmicChange(p, c){
+  const incoming = tmCosmicReading(p);
+  if(!incoming) return null;
+  const stored = c.cosmicTools;
+  const storedAt = stored && stored.asOf ? Date.parse(stored.asOf) : null;
+  const incomingAt = incoming.asOf ? Date.parse(incoming.asOf) : null;
+  if(storedAt && incomingAt && incomingAt < storedAt) return null;
+  if(stored && JSON.stringify(stored) === JSON.stringify(incoming)) return null;
+  return incoming;
+}
+
+let TM_QUEST_KEYS = null;
+function tmQuestKeyIndex(){
+  if(TM_QUEST_KEYS) return TM_QUEST_KEYS;
+  const index = new Map();
+  const add = (name, key)=>{
+    const keys = index.get(name);
+    if(keys){ if(!keys.includes(key)) keys.push(key); }
+    else index.set(name, [key]);
+  };
+  // A title can land under more than one key — the Shadowbringers physical DPS chain is one
+  // list shared by every melee and ranged job — so each match is applied, not just the first.
+  Object.keys(JOB_QUESTS).forEach(job => JOB_QUESTS[job].forEach(q => add(q.name, job)));
+  Object.keys(ROLE_QUESTS).forEach(exp =>
+    Object.keys(ROLE_QUESTS[exp]).forEach(role =>
+      ROLE_QUESTS[exp][role].forEach(q => add(q.name, 'role:' + (q.track || ROLE_TRACK_KEY[exp][role])))));
+  [...new Set(Object.values(JOB_HUB))].forEach(hub =>
+    hubQuestsFor(Object.keys(JOB_HUB).find(job => JOB_HUB[job] === hub))
+      .forEach(q => add(q.name, 'role:' + q.trackKey)));
+  TM_QUEST_KEYS = index;
+  return index;
+}
+// Every (storage key, title) pair this export would newly tick on that character. Shared by
+// the preview and the merge so the two cannot disagree about what is about to happen.
+function tmClassQuestTicks(p, c){
+  const ticks = [];
+  if(!Array.isArray(p.classQuests)) return ticks;
+  const index = tmQuestKeyIndex();
+  p.classQuests.forEach(name=>{
+    const keys = index.get(name);
+    if(!keys) return;
+    keys.forEach(key=>{
+      if(!((c.jobQuestsDone[key] || {})[name])) ticks.push([key, name]);
+    });
+  });
+  return ticks;
+}
+function tmTickedCount(c){
+  return Object.keys(c.jobQuestsDone || {})
+    .reduce((sum,key)=>sum + Object.keys(c.jobQuestsDone[key]).filter(n=>c.jobQuestsDone[key][n]).length, 0);
+}
+// [label, from, to] for each change, as strings. Empty when nothing would change.
+function computeTmDiffRows(p, c){
+  const rows = [];
+  if(typeof p.comm === 'number' && p.comm !== c.comm) rows.push(['Commendations', c.comm, p.comm]);
+  if(p.playtime){
+    const from = `${c.playtime.days}d ${c.playtime.hours}h`;
+    const to = `${p.playtime.days}d ${p.playtime.hours}h`;
+    if(from !== to) rows.push(['Playtime', from, to]);
+  }
+  if(p.server && (p.server.world||'') !== (c.server.world||'')){
+    rows.push(['Server', c.server.world || '(none)', p.server.world || '(none)']);
+  }
+  if(p.msqPatch && typeof p.msqPatch.reached === 'string'){
+    const imported = patchValue(p.msqPatch.reached);
+    const stored = patchValue(c.patch);
+    if(imported !== null && (stored === null || imported > stored)){
+      rows.push(['MSQ progress', c.patch || '(none)', p.msqPatch.reached]);
+    }
+  }
+  if(p.msqPatch && typeof p.msqPatch.cleared === 'string'){
+    const imported = patchValue(p.msqPatch.cleared);
+    const stored = patchValue(c.patchCleared);
+    if(imported !== null && (stored === null || imported > stored)){
+      rows.push(['MSQ finished through', c.patchCleared || '(none)', p.msqPatch.cleared]);
+    }
+  }
+  // Summarised rather than listed. A first import changes all 27 at once, and 27 rows of
+  // "false -> true" would bury the handful of figures someone actually wants to check.
+  if(p.unlocks && typeof p.unlocks === 'object'){
+    const held = c.unlocks || {};
+    const changed = Object.keys(p.unlocks)
+      .filter(k => typeof p.unlocks[k] === 'boolean' && p.unlocks[k] !== held[k]);
+    if(changed.length){
+      // A finish key ("Lighting the Way is done") is not a feature, so it is not counted as one.
+      const features = o => Object.keys(o).filter(k => !FINISH_KEYS.has(k));
+      const have = features(p.unlocks).filter(k => p.unlocks[k]).length;
+      rows.push(['Unlocked features',
+        features(held).length ? `${features(held).filter(k => held[k]).length} known` : '(none)',
+        `${have} of ${features(p.unlocks).length}`]);
+    }
+  }
+  ['combat','craft','gather'].forEach(group=>{
+    if(!p[group]) return;
+    Object.keys(p[group]).forEach(job=>{
+      const from = c[group][job] || 0, to = p[group][job];
+      if(from !== to) rows.push([job, fmtTmJobVal(from), fmtTmJobVal(to)]);
+    });
+  });
+  if(p.msqBreakdown){
+    MSQ_EXPANSIONS.forEach(([key,label])=>{
+      if(p.msqBreakdown[key] === undefined) return;
+      const from = c.msqBreakdown[key] || 0, to = p.msqBreakdown[key];
+      if(from !== to) rows.push([label, from, to]);
+    });
+  }
+  if(p.quests && typeof p.quests === 'object'){
+    // overall is always the sum of the 6 subcategories — never compared directly because
+    // take-the-greater on individual subs means TM's pre-computed overall would diverge.
+    const QUEST_SUBS = [['msq','Main scenario'],['era','Chronicles of a New Era'],['side','Sidequests'],['allied','Allied Society'],['class','Class & Job quests'],['leve','Levequests']];
+    let anySubChanged = false;
+    QUEST_SUBS.forEach(([key,label])=>{
+      if(p.quests[key] === undefined) return;
+      const from = c.quests[key]||0, to = p.quests[key];
+      if(to > from){ rows.push([label, from, to]); anySubChanged = true; }
+    });
+    if(anySubChanged){
+      const projOverall = QUEST_SUBS.reduce((sum,[key])=>sum+Math.max(c.quests[key]||0, p.quests[key]||0), 0);
+      const storedOverall = c.quests.overall||0;
+      if(projOverall !== storedOverall) rows.push(['Overall quests', storedOverall, projOverall]);
+    }
+    if(Array.isArray(p.quests.byExp)){
+      const fmtExp = a => Array.isArray(a) ? a.map(r => Array.isArray(r) && r[1] ? Math.round(r[0] / r[1] * 100) + '%' : '—').join(' · ') : '—';
+      const from = fmtExp(c.questsByExp), to = fmtExp(p.quests.byExp);
+      if(from !== to) rows.push(['Route line (ARR → DT)', from, to]);
+    }
+  }
+  tmReadCountChanges(p, c).forEach(({key,label,entry,countChanged})=>{
+    const shown = n => n + (entry.exact === false ? '+' : '');
+    if(countChanged) rows.push([label, c[key], shown(entry.count)]);
+    // Same number, newer reading — say so plainly rather than showing "7 → 7".
+    else rows.push([label + ', re-read', c[key+'AsOf'] ? fmtTmTimestamp(c[key+'AsOf']) : 'never read', fmtTmTimestamp(entry.asOf)]);
+  });
+  const cosmic = tmCosmicChange(p, c);
+  if(cosmic){
+    const describe = r => {
+      const n = Object.keys(r.jobs).length;
+      return `${n} class${n === 1 ? '' : 'es'}` + (r.asOf ? ` · ${fmtTmTimestamp(r.asOf)}` : '');
+    };
+    rows.push(['Cosmic tool research', c.cosmicTools ? describe(c.cosmicTools) : '(none)', describe(cosmic)]);
+  }
+  const classTicks = tmClassQuestTicks(p, c);
+  if(classTicks.length){
+    const before = tmTickedCount(c);
+    rows.push(['Job quest checklist', `${before} ticked`, `${before + classTicks.length} ticked`]);
+  }
+  // Collections, quests done, duties and exploration: one row per list whose size changed.
+  tmCollectionsDiffRows(p, c).forEach(row => rows.push(row));
+  return rows.map(([label,from,to]) => [String(label), String(from), String(to)]);
+}
+function applyTmImport(){
+  const p = tmImportPayload;
+  const cid = document.getElementById('tm-import-target').value;
+  if(!p || !cid) return;
+  const c = getChar(cid);
+  if(!c) return;
+
+  // The diff has to be cut now: after the merge the character already matches the export, so
+  // the same call would answer "No changes". It is kept on screen as the record of the merge.
+  const mergedRows = computeTmDiffRows(p, c);
+
+  if(p.server && typeof p.server === 'object'){
+    c.server = { pdc: p.server.pdc || '', ldc: p.server.ldc || '', world: p.server.world || '' };
+  }
+  if(typeof p.comm === 'number') c.comm = p.comm;
+  // "reached" (not "cleared") — gating unlocks as soon as you're into that patch's content.
+  // Take the GREATER of stored and imported — msqPatch.reached is always a floor, never an
+  // overstatement (on patch day, before the plugin's bookends are updated, a finished player
+  // still reports the previous patch). Blindly overwriting would silently downgrade anyone
+  // whose stored value is already ahead of what the plugin can report.
+  if(p.msqPatch && typeof p.msqPatch.reached === 'string'){
+    const imported = patchValue(p.msqPatch.reached);
+    const stored = patchValue(c.patch);
+    if(imported !== null && (stored === null || imported > stored)) c.patch = p.msqPatch.reached;
+  }
+  // Merged key by key, not replaced. A key the payload doesn't carry is one this plugin
+  // build knows nothing about, so a stored answer for it stays — dropping it would silently
+  // demote an exact gate back to a patch guess on an older export.
+  if(p.unlocks && typeof p.unlocks === 'object'){
+    if(!c.unlocks) c.unlocks = {};
+    Object.keys(p.unlocks).forEach(key=>{
+      if(typeof p.unlocks[key] === 'boolean') c.unlocks[key] = p.unlocks[key];
+    });
+  }
+  // Same greater-of rule, same reason: cleared is a floor too — until a new patch's
+  // bookends are recorded, a character who finished it still reports the previous one.
+  if(p.msqPatch && typeof p.msqPatch.cleared === 'string'){
+    const imported = patchValue(p.msqPatch.cleared);
+    const stored = patchValue(c.patchCleared);
+    if(imported !== null && (stored === null || imported > stored)) c.patchCleared = p.msqPatch.cleared;
+  }
+  if(p.playtime && typeof p.playtime === 'object'){
+    if(typeof p.playtime.days === 'number') c.playtime.days = p.playtime.days;
+    if(typeof p.playtime.hours === 'number') c.playtime.hours = p.playtime.hours;
+    if(typeof p.playtime.asOf === 'string') c.playtimeAsOf = p.playtime.asOf;
+  }
+  ['combat','craft','gather'].forEach(group=>{
+    if(p[group] && typeof p[group] === 'object'){
+      Object.keys(p[group]).forEach(job=>{ c[group][job] = p[group][job]; });
+    }
+  });
+  // msqBreakdown is the completed-count only; msqBreakdownTotals from the plugin is
+  // deliberately ignored — the ledger's own totals stay authoritative for now.
+  if(p.msqBreakdown && typeof p.msqBreakdown === 'object'){
+    Object.keys(p.msqBreakdown).forEach(key=>{
+      if(c.msqBreakdown[key] !== undefined) c.msqBreakdown[key] = p.msqBreakdown[key];
+    });
+  }
+  // Quest counts only go up — take the greater on each subcategory, then recompute overall
+  // from the sum so the "sub-cats sum to Overall" panel invariant is always preserved.
+  // TM's own overall is ignored: it was computed before our take-the-greater merge and would
+  // diverge if stored values were higher for any individual subcategory.
+  if(p.quests && typeof p.quests === 'object'){
+    const QUEST_SUBS = ['msq','era','side','allied','class','leve'];
+    QUEST_SUBS.forEach(key=>{
+      if(typeof p.quests[key] === 'number' && p.quests[key] > (c.quests[key]||0))
+        c.quests[key] = p.quests[key];
+    });
+    c.quests.overall = QUEST_SUBS.reduce((sum,key)=>sum+(c.quests[key]||0), 0);
+    // [done, total] per expansion for the route line. Replaced whole: totals grow
+    // with each patch, so the newest reading is the right one.
+    if(Array.isArray(p.quests.byExp) && p.quests.byExp.every(r => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)))
+      c.questsByExp = p.quests.byExp.map(r => r.slice());
+  }
+
+  // Allied societies. Matched on the game's row id rather than the name, and only
+  // applied when the payload actually carries the block — an older plugin build sends
+  // nothing here, and absence must not be read as "everything is zero".
+  //
+  // Rank 0 means never started, which this page represents as the society's own opening
+  // rank with no points, so that is what it becomes.
+  if(Array.isArray(p.societies) && p.societies.length){
+    p.societies.forEach(entry=>{
+      const name = TM_SOCIETY_IDS[entry && entry.id];
+      if(!name || !c.societies[name]) return;
+
+      const meta = ALLIED_SOCIETIES.find(a=>a[0]===name);
+      if(!meta) return;
+
+      const startRank = meta[2];
+      const rank = num(entry.rank);
+
+      c.societies[name].rank = rank > 0 ? rank : startRank;
+      c.societies[name].points = rank > 0 ? num(entry.points) : 0;
+      // The plugin's own quota for the current rank — 0 means this society cannot earn any
+      // more points here (e.g. Ixal capped at Sworn, or any ARR tribe capped at Trusted),
+      // which the generic SOCIETY_RANKS table has no way to know on its own.
+      c.societies[name].needed = rank > 0 ? num(entry.needed) : undefined;
+    });
+
+    // Only set once a block has actually arrived, so a character synced by an older
+    // build keeps its dropdowns rather than being locked to values nobody sent.
+    c.societiesSynced = true;
+  }
+
+  // Collectable counts, with the age and exactness of each reading. Taken as sent rather
+  // than take-the-greater: unlike quest totals these can legitimately be revised downward
+  // by a better reading, and the age travelling with the number is what makes a lower
+  // figure interpretable instead of alarming.
+  tmReadCountChanges(p, c).forEach(({key,entry})=>{
+    c[key] = entry.count;
+    c[key+'AsOf'] = typeof entry.asOf === 'string' ? entry.asOf : null;
+    c[key+'Exact'] = entry.exact !== false;
+  });
+
+  const cosmic = tmCosmicChange(p, c);
+  if(cosmic) c.cosmicTools = cosmic;
+
+  // Class, job and role quests, ticked from the export's completed titles. Nothing is ever
+  // unticked here — see tmClassQuestTicks for why.
+  tmClassQuestTicks(p, c).forEach(([key,name])=>{
+    if(!c.jobQuestsDone[key]) c.jobQuestsDone[key] = {};
+    c.jobQuestsDone[key][name] = true;
+  });
+
+  // The collections payload, alone or nested in the full export (journey.js).
+  applyTmCollections(p, c);
+
+  c.tmSyncedAt = p.exported || new Date().toISOString();
+  c.tmSyncedVersion = p.version || null;
+
+  // The panel stays open on what changed instead of closing and clearing, so the increases
+  // can be read once the merge is done. Close ends it, the same as the toggle always did.
+  tmImportPayload = null;
+  document.getElementById('tm-import-text').value = '';
+  document.getElementById('tm-import-error').textContent = '';
+  Object.assign(tmSummaryState(), {mode: 'merged', rows: mergedRows,
+    meta: `Merged into ${c.name || 'this character'} — ${p.name}, Tales of Milestones v${p.version||'?'}, exported ${fmtTmTimestamp(p.exported)}`});
+  DATA.activeId = cid;
+  rebuildPages();
+  renderSwitcher();
+  scheduleSave();
+  tmReloadOnClose = true;
+  document.getElementById('save-status').textContent = 'Imported from Tales of Milestones';
+}
+
+/* ---------- init ---------- */
+(async function init(){
+  await loadData();
+  applyTheme();
+  if(DATA.ui.railCollapsed){
+    document.getElementById('rail').classList.add('collapsed');
+    document.getElementById('ico-collapse').textContent = '›';
+  }
+  rebuildPages();
+  renderSwitcher();
+  updateSoundToggleUI();
+  initFootSlot();
+  setInterval(()=>{ DATA.chars.forEach(c=>{ refreshRoutines(c.id); }); checkResetSounds(); }, 30000);
+  window.addEventListener('resize', syncSitebarHeight);
+  syncSitebarHeight();
+})();
