@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Challenge Memoria">
 <meta name="theme-color" content="#12151d">
-<title>Challenge Memoria · Apex v0.16.0</title>
+<title>Challenge Memoria · Apex v0.16.1</title>
 <style>
 /* ==========================================================================
    Shell tokens, from Pandora Lunar's style.css (commit 739a743 and later).
@@ -543,7 +543,7 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
            Caps: PATCH stops at 9, so a patch after x.y.9 is x.(y+1).0.
            MINOR stops at 99, so the bump after x.99.z is (x+1).0.0.
            The commit and the update time come from version.json, which the publish step writes. -->
-      <div class="rail-ver"><span id="app-version" data-version="0.16.0">v0.16.0</span><span id="app-build"></span></div>
+      <div class="rail-ver"><span id="app-version" data-version="0.16.1">v0.16.1</span><span id="app-build"></span></div>
     </div>
   </nav>
 
@@ -1125,6 +1125,8 @@ function getCurPart(){return getPW(getCurWk()).part;}
 function partStartWk(part){return part===1?1:P1_WKS+1;}
 // Week label in the Windows-release style the community uses: S31H1W1 ... S31H1W6, S31H2W1.
 function wkLabel(wn,sea=SEA_NUM,p1=P1_WKS){const h=wn<=p1?1:2;return`S${sea}H${h}W${h===1?wn:wn-p1}`;}
+// The same week as people read it on the page. wkLabel() is the short code for saves and exports.
+function wkName(wn,sea=SEA_NUM,p1=P1_WKS){const h=wn<=p1?1:2;return`Season ${sea} Split ${h} Week ${h===1?wn:wn-p1}`;}
 function nextWeeklyReset(){return new Date(Math.min(weekStart(getCurWk()+1).getTime(),SEA_END.getTime()));}
 function nextDailyReset(){
   const now=new Date();
@@ -1198,7 +1200,7 @@ function scoreMains(){
           score++;
           stars+=parseInt(c.stars)||5;
           const{part,week}=getPW(w);
-          matching.push({c,wlbl:wkLabel(w)});
+          matching.push({c,wlbl:wkName(w)});
         }
       });
     }
@@ -1278,7 +1280,7 @@ function rWeekSel(){
     const btn=document.createElement("button");
     btn.type="button";btn.setAttribute("role","tab");btn.setAttribute("aria-selected",w===S.selectedWeek);
     btn.className="frame-btn"+(w===S.selectedWeek?" on":"")+(allDone?" done":"");
-    btn.title=wkLabel(w);
+    btn.title=wkName(w);
     btn.innerHTML=`W${week} <span class="frame-n">${total>0?done+"/"+total:"—"}</span>`;
     btn.onclick=()=>{S.selectedWeek=w;save();rWeekSel();};
     sel.appendChild(btn);
@@ -1372,7 +1374,7 @@ const WeeklyPanel={
     return{
       chs,countable,dc,
       ordered:computed(()=>[...rows.value.filter(r=>!r.done).sort((a,b)=>b.pct-a.pct),...rows.value.filter(r=>r.done)].map(r=>r.c)),
-      title:computed(()=>{const{part,week}=getPW(wn.value);return`S${SEA_NUM}H${part} · Week ${week}`;}),
+      title:computed(()=>wkName(wn.value)),
       ring:computed(()=>({strokeDashoffset:119.4-119.4*rp.value/100})),
       pctLabel:computed(()=>Math.round(rp.value)+"%"),
       add(){openBuilder(wn.value);},
@@ -1527,14 +1529,15 @@ const SpotlightPanel={
           out.push({c,w,stars:parseInt(c.stars)||5});
         });
       }
-      return out.sort((a,b)=>b.stars!==a.stars?b.stars-a.stars:a.w-b.w).slice(0,5).map(x=>({c:x.c,lbl:wkLabel(x.w)}));
+      return out.sort((a,b)=>b.stars!==a.stars?b.stars-a.stars:a.w-b.w).slice(0,5).map(x=>({c:x.c,lbl:wkName(x.w)}));
     });
     return{
       dailies,best,focus,
       withScore:computed(()=>scored.value.filter(r=>r.score>0)),
       empty:computed(()=>!dailies.value.length&&!best.value&&!focus.value.length),
       resetIn:computed(()=>fmtCd(nextDailyReset()-clock.now)),
-      why:computed(()=>best.value?best.value.matching.map(m=>m.wlbl).join(", "):""),
+      // Each week once, however many of its challenges match.
+      weeks:computed(()=>best.value?[...new Set(best.value.matching.map(m=>m.wlbl))]:[]),
       bestStars:computed(()=>best.value?best.value.matching.reduce((s,m)=>s+(parseInt(m.c.stars)||5),0):0),
     };
   },
@@ -1550,7 +1553,7 @@ const SpotlightPanel={
         <div class="legend-rec">
           <div class="legend-rec-name">{{best.leg}}</div>
           <div class="legend-rec-cls">{{best.cls}}</div>
-          <div class="legend-rec-why">Satisfies <strong>{{best.score}}</strong> incomplete challenge{{best.score!==1?'s':''}} across {{why}}</div>
+          <div class="legend-rec-why">Satisfies <strong>{{best.score}}</strong> incomplete challenge{{best.score!==1?'s':''}} {{weeks.length>1?'across':'in'}} {{weeks.join(", ")}}</div>
           <div class="legend-rec-stars">⭐ {{bestStars}} potential stars</div>
         </div>
         <div v-if="withScore.length>1" class="spot-mains">
@@ -2202,13 +2205,13 @@ function updInfo(){
   const dl=Math.floor((SEA_END-now)/86400000); // whole days, like the in-game timer
   const nx=SEASONS.find(s=>new Date(s.start)>now);
   clock.now=now.getTime();if(clock.wk!==wn)clock.wk=wn;
-  document.getElementById("iSeason").textContent=wkLabel(wn);
+  document.getElementById("iSeason").textContent=wkName(wn);
   document.getElementById("hdrSub").textContent=`Season ${SEA_NUM} ${SEA_NAME}`;
   const weeklyMs=nextWeeklyReset()-now;
   const dailyMs=nextDailyReset()-now;
   document.getElementById("iWeekly").textContent=fmtCd(weeklyMs);
   document.getElementById("iWeeklyWhat").textContent=
-    wn>=SEA_WKS||nextWeeklyReset()>=SEA_END?(nx?`Then Season ${nx.num} ${nx.name}`:"Then the season ends"):`Then ${wkLabel(wn+1)}`;
+    wn>=SEA_WKS||nextWeeklyReset()>=SEA_END?(nx?`Then Season ${nx.num} ${nx.name}`:"Then the season ends"):`Then ${wkName(wn+1)}`;
   document.getElementById("iDaily").textContent=fmtCd(dailyMs);
   document.getElementById("iDailyWhat").textContent=`At ${String(nextDailyReset().getUTCHours()).padStart(2,"0")}:00 UTC (03:00 Pacific)`;
   document.getElementById("iEnd").textContent=`${dl} day${dl===1?"":"s"}`;
@@ -2252,7 +2255,7 @@ function chkResets(){
   else if(wn!==S.weekSeen){
     const{part,week}=getPW(wn);S.weekSeen=wn;S.selectedWeek=wn;save();renderP(S.panel);
     document.getElementById("ovResetTitle").textContent=`Week ${week} Live`;
-    document.getElementById("ovResetBody").innerHTML=`${wkLabel(wn)} is now active.<br><strong>Add your new challenges to get started.</strong>`;
+    document.getElementById("ovResetBody").innerHTML=`${wkName(wn)} is now active.<br><strong>Add your new challenges to get started.</strong>`;
     document.getElementById("ovReset").classList.add("on");
   }
 }
