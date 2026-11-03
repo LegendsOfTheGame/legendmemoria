@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Challenge Memoria">
 <meta name="theme-color" content="#12151d">
-<title>Challenge Memoria · Apex v0.15.2</title>
+<title>Challenge Memoria · Apex v0.15.3</title>
 <style>
 /* ==========================================================================
    Shell tokens, from Pandora Lunar's style.css (commit 739a743 and later).
@@ -543,7 +543,7 @@ body{background:var(--ink);color:var(--text);font-family:var(--font-body);font-s
            Caps: PATCH stops at 9, so a patch after x.y.9 is x.(y+1).0.
            MINOR stops at 99, so the bump after x.99.z is (x+1).0.0.
            The commit and the update time come from version.json, which the publish step writes. -->
-      <div class="rail-ver"><span id="app-version" data-version="0.15.2">v0.15.2</span><span id="app-build"></span></div>
+      <div class="rail-ver"><span id="app-version" data-version="0.15.3">v0.15.3</span><span id="app-build"></span></div>
     </div>
   </nav>
 
@@ -930,7 +930,7 @@ const WK_RST_PT = 10;
 //   p1Wks: weeks in Part 1 (the game's Split 1). Weeks after that are Part 2.
 const SEASONS = [
   {num:30,name:"Marked",start:"2026-08-04T17:00:00Z",wks:13,p1Wks:6}, // in-game timer, 2026-09-27
-  {num:31,name:"Cipher",start:"2026-11-03T18:00:00Z",wks:14,p1Wks:6}, // start confirmed; wks and p1Wks are pre-season guesses until the launch screenshot
+  {num:31,name:"Cipher",start:"2026-11-03T18:00:00Z",wks:14,p1Wks:6}, // start and wks: in-game timers, 2026-11-03. p1Wks: apexlegendsstatus.com countdown to Split 2, 2026-12-15
 ];
 let SEA_NUM,SEA_NAME,SEA_START,SEA_END,SEA_WKS,P1_WKS;
 function pickSeason(){
@@ -1131,6 +1131,14 @@ function nextDailyReset(){
     const day=Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+i);
     const t=new Date(day+(DAY_RST_PT+ptOffsetH(new Date(day+12*3600000)))*3600000);
     if(t>now)return t;
+  }
+}
+function lastDailyReset(){
+  const now=new Date();
+  for(let i=0;i>-2;i--){
+    const day=Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+i);
+    const t=new Date(day+(DAY_RST_PT+ptOffsetH(new Date(day+12*3600000)))*3600000);
+    if(t<=now)return t;
   }
 }
 function fmtCd(ms){
@@ -2176,7 +2184,6 @@ function closeOv(id){const el=document.getElementById(id);if(el)el.classList.rem
 /* ================================================================
    INFO BAR + RESET DETECTION
 ================================================================ */
-let _lastD=null,_lastW=null;
 function setChipUrgency(id, msLeft, pulseThresh, blinkThresh){
   const bar=document.getElementById(id)?.closest(".reset-bar");
   if(!bar)return;
@@ -2212,29 +2219,35 @@ function updInfo(){
 function chkResets(){
   pickSeason();
   if(archiveSeason()){
-    _lastW=getCurWk();renderP(S.panel);
+    S.weekSeen=getCurWk();save();renderP(S.panel);
     document.getElementById("ovResetTitle").textContent=`Season ${SEA_NUM} Live`;
     document.getElementById("ovResetBody").innerHTML=`Season ${SEA_NUM} ${SEA_NAME} has started. Your earlier weekly challenges are archived in your save.<br><strong>Add your new challenges to get started.</strong>`;
     document.getElementById("ovReset").classList.add("on");
   }
-  const now=new Date(),wn=getCurWk();
-  const db=nextDailyReset().getTime()-86400000;
-  if(_lastD===null){_lastD=db;}
-  else if(now.getTime()>_lastD+86400000){
-    _lastD=db; // jump to the latest reset, so several missed days (a sleeping computer) show one popup
-    trackLegApp();
-    const wpnSlot=S.daily.slots.find(s=>s.type==="dmg_weapon"&&s.active);
-    if(wpnSlot&&wpnSlot.wpn){if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));S.stats.weapons[wpnSlot.wpn]=(S.stats.weapons[wpnSlot.wpn]||0)+1;}
-    save();
-    S.daily.fixed.play2.val=0;S.daily.fixed.play4.val=0;S.daily.slots.forEach(s=>{s.val=0;});
-    save();renderP(S.panel);
-    document.getElementById("ovResetTitle").textContent="Daily Reset";
-    document.getElementById("ovResetBody").innerHTML="Your daily challenges have reset.<br><strong>Good luck today.</strong>";
-    document.getElementById("ovReset").classList.add("on");
+  // The last reset applied is kept in the save (S.dailyReset, S.weekSeen), as Pandora Lunar
+  // keeps lastDone, so a reset that passed while the page was closed is applied when it opens.
+  // A save without S.dailyReset is older than this fix; its daily values are treated as stale.
+  const wn=getCurWk(),db=lastDailyReset().getTime();
+  if(S.dailyReset!==db){
+    // Several missed days (a closed page, a sleeping computer) give one reset and one popup.
+    const d=S.daily,had=d.fixed.play2.val>0||d.fixed.play4.val>0||d.slots.some(s=>s.val>0);
+    if(had){
+      trackLegApp();
+      const wpnSlot=d.slots.find(s=>s.type==="dmg_weapon"&&s.active);
+      if(wpnSlot&&wpnSlot.wpn){if(!S.stats)S.stats=JSON.parse(JSON.stringify(DS.stats));S.stats.weapons[wpnSlot.wpn]=(S.stats.weapons[wpnSlot.wpn]||0)+1;}
+      d.fixed.play2.val=0;d.fixed.play4.val=0;d.slots.forEach(s=>{s.val=0;});
+    }
+    S.dailyReset=db;save();
+    if(had){
+      renderP(S.panel);
+      document.getElementById("ovResetTitle").textContent="Daily Reset";
+      document.getElementById("ovResetBody").innerHTML="Your daily challenges have reset.<br><strong>Good luck today.</strong>";
+      document.getElementById("ovReset").classList.add("on");
+    }
   }
-  if(_lastW===null){_lastW=wn;}
-  else if(wn!==_lastW){
-    const{part,week}=getPW(wn);_lastW=wn;S.selectedWeek=wn;save();renderP(S.panel);
+  if(S.weekSeen===undefined){S.weekSeen=wn;save();}
+  else if(wn!==S.weekSeen){
+    const{part,week}=getPW(wn);S.weekSeen=wn;S.selectedWeek=wn;save();renderP(S.panel);
     document.getElementById("ovResetTitle").textContent=`Week ${week} Live`;
     document.getElementById("ovResetBody").innerHTML=`${wkLabel(wn)} is now active.<br><strong>Add your new challenges to get started.</strong>`;
     document.getElementById("ovReset").classList.add("on");
