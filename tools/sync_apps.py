@@ -10,6 +10,10 @@ Lunar: copies index.html and every local file that it loads. The pandora-lunar w
 refresh collection-lists.js and events-feed.js, so lunar/index.html loads those two from
 the pandora-lunar Pages site instead. If index.html no longer has the two script tags,
 the script stops and changes nothing in lunar/.
+
+Lunar also copies LUNAR_EXTRA: files that index.html does not name, because JavaScript
+loads them (the Crafting solver's worker, its WebAssembly build, and Raphael's licence).
+A folder in LUNAR_EXTRA is copied with every file in it.
 """
 import datetime
 import pathlib
@@ -21,6 +25,7 @@ import sys
 SITE = pathlib.Path(__file__).resolve().parent.parent
 LUNAR_PAGES = "https://legendsofthegame.github.io/pandora-lunar/"
 LUNAR_FEEDS = ["collection-lists.js", "events-feed.js"]
+LUNAR_EXTRA = ["craft-solver-worker.js", "vendor/raphael"]
 APEX_DROP = ['<link rel="manifest" href="manifest.json">', "fonts.googleapis.com/css2"]
 
 
@@ -56,6 +61,16 @@ def sync_apex(gct):
 
 
 def sync_lunar(pl):
+    # Checked before anything is written, so a missing file changes nothing in lunar/.
+    extra = []
+    for rel in LUNAR_EXTRA:
+        src = pl / rel
+        if src.is_dir():
+            extra += sorted(p for p in src.rglob("*") if p.is_file())
+        elif src.is_file():
+            extra.append(src)
+        else:
+            sys.exit("lunar: pandora-lunar has no %s; lunar/ was not changed" % rel)
     html = (pl / "index.html").read_text(encoding="utf-8")
     for feed in LUNAR_FEEDS:
         tag = '<script src="%s"></script>' % feed
@@ -69,6 +84,8 @@ def sync_lunar(pl):
         f = pl / rel
         if f.is_file():
             changed |= write_if_changed(SITE / "lunar" / rel, f.read_bytes())
+    for f in extra:
+        changed |= write_if_changed(SITE / "lunar" / f.relative_to(pl), f.read_bytes())
     return changed
 
 
