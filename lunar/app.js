@@ -2054,6 +2054,7 @@ function normalizeCharacter(c){
   if(!c.hunts || typeof c.hunts !== 'object') c.hunts = {};
   migrateHuntKeys(c);
   if(!c.huntsCollapsed || typeof c.huntsCollapsed !== 'object') c.huntsCollapsed = {};
+  if(!c.huntGame || typeof c.huntGame !== 'object') c.huntGame = {};
   if(!c.cosmicTools || typeof c.cosmicTools !== 'object'
      || !c.cosmicTools.jobs || typeof c.cosmicTools.jobs !== 'object') c.cosmicTools = null;
   if(typeof c.tmSyncedAt !== 'string') c.tmSyncedAt = null;
@@ -2725,17 +2726,43 @@ const ACTIVE_RESETS = 30;
 function activeWindowStart(now){
   return lastResetInstant(schedById('daily15'), now) - (ACTIVE_RESETS - 1) * DAY_MS;
 }
-function sectionMeter(c, sections){
+function sectionTally(c, sections){
   const now = new Date();
   const since = activeWindowStart(now);
   const rows = (c.routines||[]).filter(r =>
     (c.showGated || !isLocked(r, c)) && (c.showHidden || !r.hidden)
     && sections.includes(routineSection(r)) && !routineFinished(r, c)
     && r.lastDone && r.lastDone >= since);
-  return rows.length ? Math.round(rows.filter(r => isRoutineDone(r, now)).length / rows.length * 100) : null;
+  return {done: rows.filter(r => isRoutineDone(r, now)).length, total: rows.length};
+}
+function sectionMeter(c, sections){
+  const t = sectionTally(c, sections);
+  return t.total ? Math.round(t.done / t.total * 100) : null;
 }
 function todayMeter(c){ return sectionMeter(c, ['Daily']); }
-function weeklyMeter(c){ return sectionMeter(c, ['Weekly', CHALLENGE_SECTION]); }
+
+/* The Challenge Log's share of the weekly meter, from the per-entry log
+   (challenge-vue.js, c.challengeLog), not the old category routine rows. Same
+   rule as the routines: an entry counts when it was completed in one of the
+   last 4 weekly resets (about the routines' 30 days), and it is done when it
+   is full this week. An entry never completed does not count. */
+const CL_METER_WEEKS = 4;
+function challengeTally(c){
+  if(typeof clState !== 'function' || typeof CL_ROWS === 'undefined') return {done: 0, total: 0};
+  if(c.unlocks && c.unlocks.challengeLog === false) return {done: 0, total: 0};
+  const s = clState(c);
+  // Weeks are reset instants in milliseconds (clWeek).
+  const span = CL_METER_WEEKS * 7 * DAY_MS;
+  const recent = id => (s.history[id] || []).some(w => w !== s.week && s.week - w <= span);
+  const full = r => (s.counts[r[0]] || 0) >= r[5];
+  const rows = CL_ROWS.filter(r => clOpen(c, r) && (recent(r[0]) || full(r)));
+  return {done: rows.filter(full).length, total: rows.length};
+}
+function weeklyMeter(c){
+  const a = sectionTally(c, ['Weekly']), b = challengeTally(c);
+  const total = a.total + b.total;
+  return total ? Math.round((a.done + b.done) / total * 100) : null;
+}
 
 /* Seasonal: of the running seasonal events that have quests, how many have every
    quest of this run done. Broadcasts (Fan Fest stage events) have none and are
@@ -2745,8 +2772,12 @@ function weeklyMeter(c){ return sectionMeter(c, ['Weekly', CHALLENGE_SECTION]); 
    crossover = 84, quests 3158-3160, under either title the feed has used,
    the same two Time Memoria's Active Events maps). A collaboration that
    returns under a new name needs one more line here. */
+// FFXVI before FFXV, and FFXV with a trailing space: "FINAL FANTASY XVI" begins
+// with "FINAL FANTASY XV", and the first alias found wins. Until 18 Nov 2026 the
+// FFXVI crossover (festival 147, quests 4796-4798) was read as FFXV (84).
 const FEED_FESTIVAL_ALIASES = [['Fall Guys', 148], ['Keybound', 257],
-  ['FINAL FANTASY XV', 84], ['Nocturne for Heroes', 84]];
+  ['Path Infernal', 147], ['FINAL FANTASY XVI', 147],
+  ['FINAL FANTASY XV ', 84], ['Nocturne for Heroes', 84]];
 function eventFestival(e){
   if(typeof TM_FESTIVAL_QUESTS === 'undefined') return null;
   const alias = FEED_FESTIVAL_ALIASES.find(([word]) => e.name.includes(word));
@@ -3276,6 +3307,29 @@ function syncPaneTopHeight(){
 }
 /* The site bar is sticky above the rail and the pane, so both pin below it.
    Measured, because the bar wraps to two lines in a narrow window. */
+/* The old address. Lunar lives at legendmemoria.org/lunar now, and the same files
+   are still served from github.io. Browser storage belongs to one address, so a
+   character saved here does not appear at the new one. The notice shows on the
+   github.io copy only, as a row inside the site bar, and offers the existing
+   backup download. Add ?moved to the URL to see it on any other address. */
+const NEW_HOME = 'https://legendmemoria.org/lunar/';
+function showMovedNotice(){
+  const onOld = location.hostname.endsWith('github.io') || new URLSearchParams(location.search).has('moved');
+  const bar = document.querySelector('.sitebar');
+  if(!onOld || !bar || document.getElementById('moved-notice')) return;
+  const row = document.createElement('div');
+  row.id = 'moved-notice';
+  row.className = 'moved-notice';
+  row.setAttribute('role', 'status');
+  row.innerHTML = `<span><b>Pandora Lunar has moved to <a href="${NEW_HOME}">legendmemoria.org/lunar</a>.</b> `
+    + `Your characters are saved in this browser at this address only. Download your backup here, `
+    + `then open the new address and use Settings → Restore from file.</span>`
+    + `<button class="edit-btn" type="button" onclick="exportData()">Download backup</button>`
+    + `<a class="edit-btn" href="${NEW_HOME}">Go to the new address</a>`;
+  bar.appendChild(row);
+  syncSitebarHeight();
+}
+
 function syncSitebarHeight(){
   const bar = document.querySelector('.sitebar');
   if(bar) document.documentElement.style.setProperty('--sitebar-h', bar.offsetHeight + 'px');
@@ -4341,7 +4395,19 @@ const HuntList = {
     const done = id => { const c = char(); return !!(c && c.hunts[id]); };
     const count = b => b.marks.filter(m => done(m.id)).length;
     const collapsed = key => { const c = char(); return !!c && huntGroupCollapsed(c, key); };
-    return {HUNT_LAYOUT, done, count, collapsed,
+    // The reconciliation line: the game's count beside the ticks. Descriptive only — it
+    // never ticks anything, because the game says how many marks, never which ones.
+    const game = b => {
+      const c = char();
+      const r = c && c.huntGame && c.huntGame[b.key];
+      if(!r) return null;
+      const ticked = count(b);
+      const when = r.asOf ? ` (read ${agoText(Date.now() - Date.parse(r.asOf))})` : '';
+      return r.count === ticked
+        ? `The game also counts ${r.count} of ${r.max}${when}.`
+        : `The game counts ${r.count} of ${r.max}; you have ticked ${ticked}${when}.`;
+    };
+    return {HUNT_LAYOUT, done, count, collapsed, game,
       tick: (id, on) => toggleHunt(props.state.cid, id, on),
       fold: key => toggleHuntGroup(props.state.cid, key)};
   },
@@ -4354,6 +4420,7 @@ const HuntList = {
           <span class="hunt-rankcount"><b>{{ count(b) }}</b> / {{ b.marks.length }}</span>
           <button class="sec-toggle" :data-key="b.key" @click="fold(b.key)">{{ collapsed(b.key) ? 'show' : 'hide' }}</button>
         </div>
+        <div v-if="game(b)" class="hunt-game">{{ game(b) }}</div>
         <div class="hunt-list">
           <label v-for="m in b.marks" :key="m.id" :class="done(m.id) ? 'hunt-item done' : 'hunt-item'">
             <input type="checkbox" :data-mark="m.id" :data-rank="b.rank" :checked="done(m.id)" @change="tick(m.id, $event.target.checked)">
@@ -5563,9 +5630,12 @@ const SUB_DEFS = {
   'duty-roulette': {parts: SUB_ROULETTES, hint: 'One check per roulette'},
   'gc-turnin': {parts: ['CRP','BSM','ARM','GSM','LTW','WVR','ALC','CUL','MIN','BTN','FSH'], hint: 'Supply = crafters, provisioning = gatherers'},
   'allied-society': {parts: Array.from({length: 12}, (_, i) => String(i + 1)), boxes: true, hint: '12 daily allowances'},
-  'tank-you': {pick: ['Leveling','High-level'], hint: 'Pick the roulette you ran as a tank. It also ticks Duty Roulette.'}
+  'tank-you': {pick: ['Leveling','High-level'], hint: 'Pick the roulette you ran as a tank. It also ticks Duty Roulette.'},
+  // 12 delivery allowances a week, shared by every client (wiki, Custom Deliveries).
+  'custom-deliveries': {parts: Array.from({length: 12}, (_, i) => String(i + 1)), boxes: true, hint: '12 deliveries a week, all clients together'}
 };
-const SUB_LOG = {'duty-roulette': 'Feeling Lucky', 'allied-society': 'Improving Society Somewhat I', 'gc-turnin': "Give 'Em What They Want I"};
+const SUB_LOG = {'duty-roulette': 'Feeling Lucky', 'allied-society': 'Improving Society Somewhat I', 'gc-turnin': "Give 'Em What They Want I",
+  'custom-deliveries': 'The Customer Is Always Right'};
 function subsOf(item){
   const at = lastResetInstant(schedById(item.schedId), new Date());
   if(!item.subs || item.subs.at !== at) item.subs = {at, on: {}};
@@ -6109,6 +6179,32 @@ function tmReadCountChanges(p, c){
   }).filter(Boolean);
 }
 
+// The game's Achievement row id for each group above (MemoriaProbe markachv, 12 Sep 2026).
+// The export names a group by this id, not by its name, so a client in another language
+// still lands on the right block.
+const HUNT_GROUP_ACHIEVEMENTS = {
+  969: 'Mark of the Holt: A', 970: 'Mark of the Desert: A', 971: 'Mark of the Sea: A', 972: 'Mark of the Lake: A',
+  974: 'Mark of the Holt: S', 975: 'Mark of the Desert: S', 976: 'Mark of the Sea: S', 977: 'Mark of the Lake: S',
+  1261: 'Mark of the Dragon: A', 1262: 'Mark of Cloud and Ice: A', 1263: 'Mark of the Dragon: S', 1264: 'Mark of Cloud and Ice: S',
+  1911: 'Mark of the Wastes: A', 1912: 'Mark of the Wastes: S', 1914: 'Mark of the East: A', 1915: 'Mark of the East: S'
+};
+// Hunt group counts (Tales of Milestones 3.14 and later): one entry per "Mark of the ..."
+// achievement the plugin has read. Same age rule as the collectable counts.
+function tmHuntGroupChanges(p, c){
+  if(!Array.isArray(p.huntGroups)) return [];
+  return p.huntGroups.map(g => {
+    if(!g || typeof g.count !== 'number') return null;
+    const key = HUNT_GROUP_ACHIEVEMENTS[g.id];
+    const group = key && ELITE_MARK_GROUPS.find(row => row[1] === key);
+    if(!group) return null;
+    const stored = c.huntGame[key];
+    const storedAt = stored && stored.asOf ? Date.parse(stored.asOf) : null;
+    const incomingAt = typeof g.asOf === 'string' ? Date.parse(g.asOf) : null;
+    if(storedAt && incomingAt && incomingAt < storedAt) return null;
+    return {key, reading: {count: g.count, max: num(g.max) || group[4].length, asOf: typeof g.asOf === 'string' ? g.asOf : null}};
+  }).filter(Boolean);
+}
+
 // Cosmic tool research, cleaned to {asOf, jobs}. Null when the export has no block: an
 // older plugin build, or a character never read in a Cosmic Exploration zone.
 function tmCosmicReading(p){
@@ -6396,6 +6492,10 @@ function applyTmImport(){
   const cosmic = tmCosmicChange(p, c);
   if(cosmic) c.cosmicTools = cosmic;
 
+  // The game's own count per hunt group. Stored beside the ticks, never as ticks: the
+  // game says how many, never which.
+  tmHuntGroupChanges(p, c).forEach(({key, reading}) => { c.huntGame[key] = reading; });
+
   // Class, job and role quests, ticked from the export's completed titles. Nothing is ever
   // unticked here — see tmClassQuestTicks for why.
   tmClassQuestTicks(p, c).forEach(([key,name])=>{
@@ -6436,6 +6536,7 @@ function applyTmImport(){
   renderSwitcher();
   updateSoundToggleUI();
   initFootSlot();
+  showMovedNotice();
   setInterval(()=>{ DATA.chars.forEach(c=>{ refreshRoutines(c.id); }); checkResetSounds(); }, 30000);
   window.addEventListener('resize', syncSitebarHeight);
   syncSitebarHeight();
