@@ -12,7 +12,8 @@ the pandora-lunar Pages site instead. If index.html no longer has the two script
 the script stops and changes nothing in lunar/.
 
 Lunar also copies LUNAR_EXTRA: files that index.html does not name, because JavaScript
-loads them (the Crafting solver's worker, its WebAssembly build, and Raphael's licence).
+loads them (the Crafting solver's worker, its WebAssembly build, and Raphael's licence;
+the gear guide's data, which gear-guide-vue.js loads when the frame is first shown).
 A folder in LUNAR_EXTRA is copied with every file in it.
 """
 import datetime
@@ -25,7 +26,7 @@ import sys
 SITE = pathlib.Path(__file__).resolve().parent.parent
 LUNAR_PAGES = "https://legendsofthegame.github.io/pandora-lunar/"
 LUNAR_FEEDS = ["collection-lists.js", "events-feed.js"]
-LUNAR_EXTRA = ["craft-solver-worker.js", "vendor/raphael"]
+LUNAR_EXTRA = ["craft-solver-worker.js", "vendor/raphael", "gear-guide.js"]
 APEX_DROP = ['<link rel="manifest" href="manifest.json">', "fonts.googleapis.com/css2"]
 
 
